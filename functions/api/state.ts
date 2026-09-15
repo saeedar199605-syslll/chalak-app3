@@ -1,145 +1,130 @@
-interface Env {
-  CHALAK_DB?: any;
-  KV?: any;
-  DB?: any;
-  CHALAK_PERFORMANCE_KV?: any;
-  DATABASE?: any;
-  [key: string]: any;
+import { AuthSession, CloudflareEnv, jsonResponse } from '../../cloudflare/auth';
+import { CloudState, sanitizeCloudState } from '../../cloudflare/syncState';
+
+interface Context {
+  request: Request;
+  env: CloudflareEnv;
+  data: { session?: AuthSession };
 }
 
-function sanitizePayload(raw: any): any {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
-  const clean: Record<string, any> = {};
-  for (const [key, val] of Object.entries(raw)) {
-    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
-    clean[key] = val;
-  }
-  return clean;
+interface StateMeta {
+  revision: number;
+  updatedAt: string;
+  updatedBy?: string;
+  clientId?: string;
 }
 
-const headers = {
-  'Content-Type': 'application/json; charset=utf-8',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-  'Pragma': 'no-cache',
-  'Expires': '0',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma'
-};
+interface StateEnvelope {
+  state?: unknown;
+  baseRevision?: unknown;
+  clientId?: unknown;
+}
 
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
-  const KV = env.CHALAK_DB || env.KV || env.DB || env.CHALAK_PERFORMANCE_KV || env.DATABASE;
-  const url = new URL(request.url);
-  const isVersionOnly = url.searchParams.get('version_only') === 'true';
+type EmployeeRecord = { id: string; username?: string; supervisorId?: string };
+type EvaluationRecord = { id: string; empId: string };
 
-  if (!KV) {
-    return new Response(
-      JSON.stringify(isVersionOnly ? { version: 0, updatedAt: new Date().toISOString(), fallback: true } : {}),
-      { status: 200, headers }
-    );
-  }
-
-  if (isVersionOnly) {
-    const versionStr = await KV.get('app_state_version');
-    const version = versionStr ? Number(versionStr) : 0;
-    const updatedAtStr = await KV.get('app_state_updated_at');
-    return new Response(
-      JSON.stringify({ version, updatedAt: updatedAtStr || new Date().toISOString() }),
-      { status: 200, headers }
-    );
-  }
-
-  const [data, versionStr, updatedAtStr] = await Promise.all([
-    KV.get('app_state'),
-    KV.get('app_state_version'),
-    KV.get('app_state_updated_at')
+async function readState(env: CloudflareEnv): Promise<{ state: CloudState; meta: StateMeta }> {
+  const [rawState, rawMeta] = await Promise.all([
+    env.CHALAK_DB.get('app_state'),
+    env.CHALAK_DB.get('app_state_meta'),
   ]);
-
-  if (!data) {
-    return new Response('{}', { status: 200, headers });
-  }
-
-  return new Response(data, {
-    status: 200,
-    headers: {
-      ...headers,
-      'X-App-Version': versionStr || '1',
-      'X-App-Updated-At': updatedAtStr || new Date().toISOString()
-    }
-  });
-};
-
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
-  const KV = env.CHALAK_DB || env.KV || env.DB || env.CHALAK_PERFORMANCE_KV || env.DATABASE;
-  const rawText = await request.text();
-  const now = Date.now();
-  const nowIso = new Date().toISOString();
-
-  if (!KV) {
-    return new Response(
-      JSON.stringify({ success: true, version: now, fallback: 'client_storage', warning: 'KV_BINDING_MISSING', updatedAt: nowIso }),
-      { status: 200, headers }
-    );
-  }
-
+  let state: CloudState = {};
+  let meta: StateMeta = { revision: 0, updatedAt: '' };
+  try { state = rawState ? sanitizeCloudState(JSON.parse(rawState)) : {}; } catch { state = {}; }
   try {
-    const parsed = JSON.parse(rawText);
-    const sanitized = sanitizePayload(parsed);
+    const parsed = rawMeta ? JSON.parse(rawMeta) as Partial<StateMeta> : {};
+    meta = {
+      revision: Number.isInteger(parsed.revision) && Number(parsed.revision) >= 0 ? Number(parsed.revision) : 0,
+      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : '',
+      updatedBy: typeof parsed.updatedBy === 'string' ? parsed.updatedBy : undefined,
+      clientId: typeof parsed.clientId === 'string' ? parsed.clientId : undefined,
+    };
+  } catch { /* legacy state starts at revision zero */ }
+  return { state, meta };
+}
 
-    // Anti-wipe protection: Never let an uninitialized browser wipe out existing evaluations!
-    const existingData = await KV.get('app_state');
-    if (existingData) {
-      try {
-        const existingState = JSON.parse(existingData);
-        if (Array.isArray(existingState['pe_evaluations']) && existingState['pe_evaluations'].length > 0) {
-          const incomingEvals = Array.isArray(sanitized['pe_evaluations']) ? sanitized['pe_evaluations'] : [];
-          if (incomingEvals.length === 0) {
-            sanitized['pe_evaluations'] = existingState['pe_evaluations'];
-          } else {
-            const evalMap = new Map();
-            for (const ev of existingState['pe_evaluations']) {
-              const k = `${ev.empId || ev.id}_${ev.period || ''}`;
-              evalMap.set(k, ev);
-            }
-            for (const ev of incomingEvals) {
-              const k = `${ev.empId || ev.id}_${ev.period || ''}`;
-              evalMap.set(k, ev);
-            }
-            sanitized['pe_evaluations'] = Array.from(evalMap.values());
-          }
-        }
+function allowedEmployeeIds(state: CloudState, session: AuthSession): Set<string> {
+  const employees = Array.isArray(state.pe_employees) ? state.pe_employees as EmployeeRecord[] : [];
+  return new Set(
+    employees
+      .filter(employee => session.role === 'supervisor'
+        ? employee.supervisorId === session.id || employee.id === session.id
+        : employee.id === session.id)
+      .map(employee => employee.id)
+  );
+}
 
-        if (Array.isArray(existingState['pe_employees']) && existingState['pe_employees'].length > 0) {
-          const incomingEmps = Array.isArray(sanitized['pe_employees']) ? sanitized['pe_employees'] : [];
-          if (incomingEmps.length === 0) {
-            sanitized['pe_employees'] = existingState['pe_employees'];
-          }
-        }
-      } catch (e) {
-        console.warn('Merge state warning:', e);
-      }
-    }
-
-    const payloadString = JSON.stringify(sanitized);
-
-    await Promise.all([
-      KV.put('app_state', payloadString),
-      KV.put('app_state_version', String(now)),
-      KV.put('app_state_updated_at', nowIso)
-    ]);
-
-    return new Response(
-      JSON.stringify({ success: true, version: now, updatedAt: nowIso }),
-      { status: 200, headers }
-    );
-  } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: 'Invalid JSON payload', details: err.message }),
-      { status: 400, headers }
-    );
+function scopedState(state: CloudState, session: AuthSession): CloudState {
+  if (session.role === 'admin') return state;
+  const employees = Array.isArray(state.pe_employees) ? state.pe_employees as EmployeeRecord[] : [];
+  const allowedIds = allowedEmployeeIds(state, session);
+  const result: CloudState = { ...state };
+  if (Array.isArray(state.pe_evaluations)) {
+    result.pe_evaluations = (state.pe_evaluations as EvaluationRecord[]).filter(item => allowedIds.has(item.empId));
   }
-};
+  result.pe_employees = employees.filter(employee => allowedIds.has(employee.id));
+  for (const key of [
+    'pe_reward_config', 'pe_reward_batch_history', 'pe_system_logs', 'pe_audit_logs',
+    'pe_role_permissions', 'pe_user_custom_permissions', 'pe_locked_users',
+  ]) delete result[key];
+  return sanitizeCloudState(result);
+}
 
-export const onRequestOptions: PagesFunction = async () => {
-  return new Response(null, { status: 204, headers });
-};
+function mergeAuthorizedState(current: CloudState, changes: CloudState, session: AuthSession): CloudState {
+  if (session.role === 'admin') return sanitizeCloudState({ ...current, ...changes });
+  const next = { ...current };
+  const allowedIds = allowedEmployeeIds(current, session);
+  if (Array.isArray(changes.pe_evaluations)) {
+    const currentEvaluations = Array.isArray(current.pe_evaluations) ? current.pe_evaluations as EvaluationRecord[] : [];
+    const incoming = (changes.pe_evaluations as EvaluationRecord[]).filter(item => item?.id && allowedIds.has(item.empId));
+    const byId = new Map(currentEvaluations.map(item => [item.id, item]));
+    incoming.forEach(item => byId.set(item.id, item));
+    next.pe_evaluations = Array.from(byId.values());
+  }
+  for (const key of ['pe_lattice_okrs', 'pe_lattice_one_on_ones', 'pe_lattice_kudos', 'pe_tickets']) {
+    if (key in changes) next[key] = changes[key];
+  }
+  return sanitizeCloudState(next);
+}
+
+function responseEnvelope(state: CloudState, meta: StateMeta, session: AuthSession): Response {
+  return jsonResponse({ state: scopedState(state, session), ...meta });
+}
+
+export async function onRequestGet({ env, data }: Context): Promise<Response> {
+  if (!data.session) return jsonResponse({ error: 'Authentication required.' }, 401);
+  const { state, meta } = await readState(env);
+  return responseEnvelope(state, meta, data.session);
+}
+
+export async function onRequestPost({ request, env, data }: Context): Promise<Response> {
+  if (!data.session) return jsonResponse({ error: 'Authentication required.' }, 401);
+  if (!request.headers.get('Content-Type')?.toLowerCase().includes('application/json')) {
+    return jsonResponse({ error: 'Content-Type must be application/json.' }, 415);
+  }
+  const text = await request.text();
+  if (text.length > 5_000_000) return jsonResponse({ error: 'Payload is too large.' }, 413);
+
+  let body: StateEnvelope;
+  try { body = JSON.parse(text) as StateEnvelope; }
+  catch { return jsonResponse({ error: 'Invalid JSON payload.' }, 400); }
+
+  const changes = sanitizeCloudState(body.state === undefined ? body : body.state);
+  if (Object.keys(changes).length === 0) return jsonResponse({ error: 'No synchronized changes were supplied.' }, 400);
+
+  const { state: current, meta: currentMeta } = await readState(env);
+  const next = mergeAuthorizedState(current, changes, data.session);
+  const meta: StateMeta = {
+    revision: currentMeta.revision + 1,
+    updatedAt: new Date().toISOString(),
+    updatedBy: data.session.username,
+    clientId: typeof body.clientId === 'string' ? body.clientId.slice(0, 80) : undefined,
+  };
+  await env.CHALAK_DB.put('app_state', JSON.stringify(next));
+  await env.CHALAK_DB.put('app_state_meta', JSON.stringify(meta));
+  return responseEnvelope(next, meta, data.session);
+}
+
+export function onRequest(): Response {
+  return jsonResponse({ error: 'Method not allowed.' }, 405, { Allow: 'GET, POST' });
+}

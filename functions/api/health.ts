@@ -1,27 +1,28 @@
-interface Env {
-  CHALAK_DB?: any;
-  KV?: any;
-  DB?: any;
-  GEMINI_API_KEY?: string;
-  [key: string]: any;
-}
+import { CloudflareEnv, jsonResponse } from '../../cloudflare/auth';
 
-export const onRequest: PagesFunction<Env> = async ({ env }) => {
-  const KV = env.CHALAK_DB || env.KV || env.DB || env.CHALAK_PERFORMANCE_KV || env.DATABASE;
-  return new Response(
-    JSON.stringify({
+interface Context { env: CloudflareEnv }
+
+export async function onRequestGet({ env }: Context): Promise<Response> {
+  if (!env.CHALAK_DB) {
+    return jsonResponse({ status: 'error', storage: 'unconfigured', error: 'CHALAK_DB binding is missing.' }, 503);
+  }
+  try {
+    const meta = await env.CHALAK_DB.get('app_state_meta');
+    let revision = 0;
+    try { revision = Number(meta ? JSON.parse(meta).revision : 0) || 0; } catch { revision = 0; }
+    return jsonResponse({
       status: 'ok',
       runtime: 'cloudflare-pages',
-      hasKV: !!KV,
-      hasGeminiKey: !!env.GEMINI_API_KEY,
-      timestamp: new Date().toISOString()
-    }),
-    {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
-      }
-    }
-  );
-};
+      storage: 'workers-kv',
+      storageConfigured: true,
+      revision,
+      timestamp: new Date().toISOString(),
+    });
+  } catch {
+    return jsonResponse({ status: 'error', storage: 'workers-kv', storageConfigured: false }, 503);
+  }
+}
+
+export function onRequest(): Response {
+  return jsonResponse({ error: 'Method not allowed.' }, 405, { Allow: 'GET' });
+}

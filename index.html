@@ -4,50 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#f8fafc" />
-    <title>سامانه جامع مدیریت عملکرد و مربیگری هوشمند - اصفهان چالاک</title>
-    <meta name="description" content="سامانه مدیریت عملکرد، شاخص‌های کلیدی، مربیگری و اهداف اصفهان چالاک" />
+    <title>سامانه ارزیابی عملکرد و مربیگری شرکت اصفهان چالاک</title>
+    <meta name="description" content="سامانه جامع ارزیابی عملکرد و پایش بهره‌وری سازمانی، اهداف OKR، جلسات ۱به۱، بازخورد و تمجید (Lattice) و پایش زنده کارکرد و زمان پرسنل (Kickidler)" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <meta property="og:title" content="سامانه ارزیابی عملکرد و مربیگری شرکت اصفهان چالاک" />
+    <meta property="og:description" content="سامانه جامع ارزیابی عملکرد و پایش بهره‌وری سازمانی، اهداف OKR، جلسات ۱به۱، بازخورد و تمجید (Lattice) و پایش زنده کارکرد و زمان پرسنل (Kickidler)" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
-    
-    <!-- Theme initial state -->
-    <script>
-      try {
-        var storedTheme = localStorage.getItem('pe_theme');
-        if (!storedTheme) {
-          storedTheme = 'light';
-          localStorage.setItem('pe_theme', 'light');
-        }
-        if (storedTheme === 'light') {
-          document.documentElement.classList.add('light-theme');
-        } else {
-          document.documentElement.classList.remove('light-theme');
-        }
-      } catch (e) {}
-    </script>
-    
-    <!-- Persian Fonts Preconnect -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-    <script>
-      window.addEventListener('unhandledrejection', function(event) {
-        if (event && event.reason) {
-          var str = String(event.reason) + ' ' + String(event.reason.message || '');
-          if (str.indexOf('WebSocket') !== -1 || str.indexOf('vite') !== -1) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-          }
-        }
-      });
-      window.addEventListener('error', function(event) {
-        if (event && event.message) {
-          var msg = String(event.message);
-          if (msg.indexOf('WebSocket') !== -1 || msg.indexOf('vite') !== -1) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-          }
-        }
-      }, true);
-    </script>
   </head>
   <body class="antialiased selection:bg-teal-500/20 selection:text-teal-300">
     <div id="root"></div>

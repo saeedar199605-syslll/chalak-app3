@@ -15,6 +15,7 @@ export interface AuthSession {
   name: string;
   username: string;
   role: 'admin' | 'supervisor' | 'employee';
+  authVersion?: number;
   expiresAt: number;
 }
 
@@ -61,6 +62,11 @@ export async function readSession(request: Request, env: CloudflareEnv): Promise
   try {
     const session = JSON.parse(raw) as AuthSession;
     if (!session.expiresAt || session.expiresAt <= Date.now()) {
+      await env.CHALAK_DB.delete(`session:${token}`);
+      return null;
+    }
+    const currentAuthVersion = Number(await env.CHALAK_DB.get(`credential_version:${normalizeUsername(session.username)}`) || '0');
+    if ((session.authVersion ?? 0) !== currentAuthVersion) {
       await env.CHALAK_DB.delete(`session:${token}`);
       return null;
     }

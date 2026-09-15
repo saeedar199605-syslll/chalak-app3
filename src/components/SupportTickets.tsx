@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Ticket, Send, CheckCircle2, MessageSquare, AlertCircle, RefreshCw } from 'lucide-react';
+import { Ticket, Send, CheckCircle2, MessageSquare, Edit2, Trash2 } from 'lucide-react';
 import { SupportTicket, Employee } from '../types';
 import { db } from '../utils/db';
 
@@ -20,6 +20,7 @@ export default function SupportTickets({ currentUser, theme = 'light' }: Support
     const unsub = db.subscribe((key, data) => {
       if (key === 'pe_tickets' && Array.isArray(data)) {
         setTickets(prev => JSON.stringify(prev) === JSON.stringify(data) ? prev : data);
+        setActiveTicket(previous => previous ? data.find(ticket => ticket.id === previous.id) || null : null);
       }
     });
     return unsub;
@@ -95,6 +96,48 @@ export default function SupportTickets({ currentUser, theme = 'light' }: Support
     saveTickets(updatedTickets);
   };
 
+  const handleEditTicket = (ticket: SupportTicket) => {
+    if (!isAdmin) return;
+    const nextSubject = window.prompt('موضوع تیکت را ویرایش کنید:', ticket.subject);
+    if (nextSubject === null || !nextSubject.trim()) return;
+    const nextMessage = window.prompt('متن اصلی تیکت را ویرایش کنید:', ticket.message);
+    if (nextMessage === null || !nextMessage.trim()) return;
+    const updated = {
+      ...ticket,
+      subject: nextSubject.trim(),
+      message: nextMessage.trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    saveTickets(tickets.map(item => item.id === ticket.id ? updated : item));
+    setActiveTicket(updated);
+  };
+
+  const handleDeleteTicket = (ticket: SupportTicket) => {
+    if (!isAdmin || !window.confirm(`تیکت «${ticket.subject}» و تمام پاسخ‌های آن حذف شود؟`)) return;
+    saveTickets(tickets.filter(item => item.id !== ticket.id));
+    setActiveTicket(null);
+  };
+
+  const updateTicketReplies = (ticket: SupportTicket, replies: SupportTicket['replies']) => {
+    const updated = { ...ticket, replies, updatedAt: new Date().toISOString() };
+    saveTickets(tickets.map(item => item.id === ticket.id ? updated : item));
+    setActiveTicket(updated);
+  };
+
+  const handleEditReply = (ticket: SupportTicket, replyId: string) => {
+    if (!isAdmin) return;
+    const target = ticket.replies.find(item => item.id === replyId);
+    if (!target) return;
+    const message = window.prompt('متن پاسخ را ویرایش کنید:', target.message);
+    if (message === null || !message.trim()) return;
+    updateTicketReplies(ticket, ticket.replies.map(item => item.id === replyId ? { ...item, message: message.trim() } : item));
+  };
+
+  const handleDeleteReply = (ticket: SupportTicket, replyId: string) => {
+    if (!isAdmin || !window.confirm('این پاسخ حذف شود؟')) return;
+    updateTicketReplies(ticket, ticket.replies.filter(item => item.id !== replyId));
+  };
+
   const visibleTickets = isAdmin ? tickets : tickets.filter(t => t.senderId === currentUser.id);
 
   return (
@@ -166,9 +209,21 @@ export default function SupportTickets({ currentUser, theme = 'light' }: Support
                 <h3 className="font-bold text-lg">{activeTicket.subject}</h3>
                 <p className="text-xs text-slate-500">ایجاد کننده: {activeTicket.senderName} • {new Date(activeTicket.createdAt).toLocaleString('fa-IR')}</p>
               </div>
-              <button onClick={() => toggleStatus(activeTicket)} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors ${activeTicket.status === 'closed' ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20' : 'bg-slate-500/10 text-slate-500 hover:bg-slate-500/20'}`}>
-                <CheckCircle2 className="w-4 h-4" /> {activeTicket.status === 'closed' ? 'باز کردن مجدد' : 'بستن تیکت'}
-              </button>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <>
+                    <button type="button" onClick={() => handleEditTicket(activeTicket)} className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20" title="ویرایش تیکت">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => handleDeleteTicket(activeTicket)} className="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20" title="حذف تیکت">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+                <button type="button" onClick={() => toggleStatus(activeTicket)} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors ${activeTicket.status === 'closed' ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20' : 'bg-slate-500/10 text-slate-500 hover:bg-slate-500/20'}`}>
+                  <CheckCircle2 className="w-4 h-4" /> {activeTicket.status === 'closed' ? 'باز کردن مجدد' : 'بستن تیکت'}
+                </button>
+              </div>
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -184,7 +239,15 @@ export default function SupportTickets({ currentUser, theme = 'light' }: Support
                 const isMe = r.senderId === currentUser.id;
                 return (
                   <div key={r.id} className={`flex flex-col gap-1 ${isMe ? 'items-start' : 'items-end'}`}>
-                    <span className="text-[10px] text-slate-500 px-1">{r.senderName} {r.isAdmin && <span className="text-rose-500 font-bold">(ادمین)</span>}</span>
+                    <div className="flex items-center gap-1 px-1">
+                      <span className="text-[10px] text-slate-500">{r.senderName} {r.isAdmin && <span className="text-rose-500 font-bold">(ادمین)</span>}</span>
+                      {isAdmin && (
+                        <>
+                          <button type="button" onClick={() => handleEditReply(activeTicket, r.id)} className="text-indigo-400 hover:text-indigo-300" title="ویرایش پاسخ"><Edit2 className="w-3 h-3" /></button>
+                          <button type="button" onClick={() => handleDeleteReply(activeTicket, r.id)} className="text-rose-400 hover:text-rose-300" title="حذف پاسخ"><Trash2 className="w-3 h-3" /></button>
+                        </>
+                      )}
+                    </div>
                     <div className={`p-3 rounded-2xl max-w-[80%] ${isMe ? 'rounded-tr-sm bg-teal-600 text-white' : (theme === 'dark' ? 'rounded-tl-sm bg-slate-800' : 'rounded-tl-sm bg-slate-100')}`}>
                       <p className="whitespace-pre-wrap text-sm leading-relaxed">{r.message}</p>
                     </div>

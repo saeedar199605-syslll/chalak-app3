@@ -36,6 +36,7 @@ class BrowserNotificationManager {
       console.warn('Browser Notifications are not supported in this environment.');
       return false;
     }
+
     try {
       const result = await Notification.requestPermission();
       this.permission = result;
@@ -54,7 +55,7 @@ class BrowserNotificationManager {
     try {
       const notification = new Notification(payload.title, {
         body: payload.body,
-        icon: payload.icon || '/logo.svg',
+        icon: payload.icon || '/chalak-logo.png',
         tag: payload.tag || 'chalak-eval-alert',
         dir: 'rtl',
         lang: 'fa',
@@ -66,6 +67,7 @@ class BrowserNotificationManager {
         notification.close();
       };
 
+      // Auto close after 7 seconds
       setTimeout(() => {
         try {
           notification.close();
@@ -81,22 +83,23 @@ class BrowserNotificationManager {
 
   public sendWorkflowDeadlineAlert(role: string, count: number, deadlineText?: string) {
     if (count <= 0) return;
+
     if (role === 'supervisor') {
       this.send({
-        title: 'هشدار موعد ارزیابی پرسنل',
-        body: `تعداد ${count} فرم ارزیابی در انتظار تایید سرپرست است. موعد: ${deadlineText || 'پایان هفته جاری'}.`,
+        title: 'هشدار مهلت تاییدات ارزیابی عملکرد - اصفهان چالاک',
+        body: `تعداد ${count} پرونده ارزیابی عملکرد زیرمجموعه در انتظار بررسی و ثبت نمرات شماست. مهلت تکمیل: ${deadlineText || 'تا پایان هفته جاری'}.`,
         tag: 'supervisor-pending-tasks'
       });
     } else if (role === 'employee') {
       this.send({
-        title: 'یادآوری تکمیل خودارزیابی',
-        body: 'فرم خودارزیابی دوره جاری منتظر ثبت نمرات شما است.',
+        title: 'یادآوری تکمیل خودارزیابی دوره‌ای',
+        body: 'فرم خودارزیابی نیم‌سال جاری برای شما فعال شده است. لطفاً نسبت به ثبت نمرات و مستندات اقدام نمایید.',
         tag: 'employee-self-eval'
       });
     } else if (role === 'admin') {
       this.send({
-        title: 'یادآوری کمیته کالیبراسیون',
-        body: `تعداد ${count} ارزیابی آماده طرح در جلسه کالیبراسیون و تایید نهایی است.`,
+        title: 'فرآیند کالیبراسیون و تاییدات نهایی',
+        body: `تعداد ${count} پرونده در مرحله تایید کمیته ارزیابی و منابع انسانی قرار دارد.`,
         tag: 'hr-calibration-alert'
       });
     }

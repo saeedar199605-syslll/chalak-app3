@@ -82,7 +82,9 @@ table, tr, td, th, .virtualized-row, .table-cell-content {
 }
 
 /* Clean isolation for table containers to prevent underlying shadows from bleeding over text */
-.virtualized-table-container, [role="table"], .table-container {
+.virtualized-table-container,
+[role="table"],
+.table-container {
   isolation: isolate;
   contain: paint;
 }
@@ -128,7 +130,6 @@ html.light-theme .virtualized-row:hover {
 .score-btn {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 .score-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.15);
@@ -139,16 +140,13 @@ html.light-theme .virtualized-row:hover {
   width: 5px;
   height: 5px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
   background: #475569;
   border-radius: 99px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
@@ -156,11 +154,9 @@ html.light-theme .virtualized-row:hover {
 html.light-theme ::-webkit-scrollbar-track {
   background: #f8fafc;
 }
-
 html.light-theme ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
 }
-
 html.light-theme ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
@@ -293,36 +289,47 @@ html.light-theme .text-amber-400 {
 html.light-theme .bg-teal-500\/10 {
   background-color: rgba(220, 38, 38, 0.08) !important;
 }
+
 html.light-theme .bg-indigo-500\/10 {
   background-color: rgba(225, 29, 72, 0.08) !important;
 }
+
 html.light-theme .bg-teal-500\/20 {
   background-color: rgba(220, 38, 38, 0.15) !important;
 }
+
 html.light-theme .bg-indigo-500\/5 {
   background-color: rgba(225, 29, 72, 0.04) !important;
 }
+
 html.light-theme .border-teal-500\/20 {
   border-color: rgba(220, 38, 38, 0.15) !important;
 }
+
 html.light-theme .border-indigo-500\/10 {
   border-color: rgba(225, 29, 72, 0.12) !important;
 }
+
 html.light-theme .bg-emerald-500\/10 {
   background-color: rgba(22, 163, 74, 0.08) !important;
 }
+
 html.light-theme .border-emerald-500\/20 {
   border-color: rgba(22, 163, 74, 0.15) !important;
 }
+
 html.light-theme .bg-rose-500\/5 {
   background-color: rgba(220, 38, 38, 0.04) !important;
 }
+
 html.light-theme .border-rose-500\/10 {
   border-color: rgba(220, 38, 38, 0.1) !important;
 }
+
 html.light-theme .bg-amber-500\/10 {
   background-color: rgba(234, 88, 12, 0.08) !important;
 }
+
 html.light-theme .border-amber-500\/20 {
   border-color: rgba(234, 88, 12, 0.15) !important;
 }
@@ -333,16 +340,13 @@ html.light-theme .border-amber-500\/20 {
     size: A4 portrait;
     margin: 12mm 14mm 14mm 14mm;
   }
-
   aside, .no-print, header, nav {
     display: none !important;
   }
-
   body, html {
     background: #ffffff !important;
     color: #0f172a !important;
   }
-
   main {
     padding: 0 !important;
     margin: 0 !important;
@@ -350,7 +354,6 @@ html.light-theme .border-amber-500\/20 {
     color: #000000 !important;
     overflow: visible !important;
   }
-
   #printable-manual-document {
     width: 100% !important;
     max-width: none !important;
@@ -360,13 +363,11 @@ html.light-theme .border-amber-500\/20 {
     margin: 0 !important;
     display: block !important;
   }
-
   /* Avoid breaking inside sections or cards */
   section, table, tr {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-
   h1, h2, h3 {
     break-after: avoid;
     page-break-after: avoid;

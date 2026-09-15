@@ -1,89 +1,64 @@
+import { GoogleGenAI, Type } from '@google/genai';
 
-interface Env {
-  GEMINI_API_KEY?: string;
-  [key: string]: any;
-}
-
-const headers = {
-  'Content-Type': 'application/json; charset=utf-8',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
-};
-
-async function callGemini(apiKey: string | undefined, prompt: string, systemInstruction: string) {
-  if (!apiKey) throw new Error('NO_API_KEY');
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.2,
-        },
-      }),
-    }
-  );
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Gemini API Error: ${response.status} - ${errText}`);
-  }
-  const resData = await response.json() as any;
-  const text = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Empty Gemini response');
-  return JSON.parse(text.trim());
-}
-
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
-  const requestBody = await request.json().catch(() => ({})) as any;
-  const { boxesSummary, totalHeadcount, period } = requestBody;
-
+export const onRequestPost: any = async (context: any) => {
   try {
-    const prompt = `شما مدیر ارشد استعدادها در هلدینگ صنعتی هستید. ماتریس ۹ خانه استعداد زیر را تحلیل کنید:
-تعداد کل ارزیابی‌شدگان: ${totalHeadcount || 0}
-خلاصه خانه‌ها: ${JSON.stringify(boxesSummary || [])}
+    const { request, env } = context;
+    const body = await request.json() as any;
+    const { matrixData, employees } = body;
 
-خروجی JSON:
-{
-  "executiveSummary": "تحلیل راهبردی کلان توزیع استعدادها",
-  "talentHealthScore": 86,
-  "boxRecommendations": [
-    {
-      "boxId": "star",
-      "boxTitle": "ستارگان آینده",
-      "headcount": 2,
-      "strategicGuidance": "هدایت راهبردی"
-    }
-  ],
-  "riskWarnings": []
-}`;
+    if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
+    const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+    
+    const summaryData = matrixData.map((d: any) => ({
+      name: d.name,
+      role: d.jobFamily || d.role,
+      performance: d.performance,
+      potential: d.potential,
+      box: d.boxIndex
+    }));
 
-    const parsed = await callGemini(
-      env.GEMINI_API_KEY,
-      prompt,
-      'You are an executive talent strategist. Return structured JSON in fluent Persian.'
-    );
-    return new Response(JSON.stringify(parsed), { status: 200, headers });
-  } catch (err) {
-    return new Response(
-      JSON.stringify({
-        executiveSummary: 'توزیع کلی پرسنل در ماتریس ۹ خانه نشان‌دهنده تعادل مناسب میان شایستگی‌های رفتاری و عملکرد کمی است.',
-        talentHealthScore: 85,
-        boxRecommendations: [
-          { boxId: 'star', boxTitle: 'ستارگان آینده', headcount: 2, strategicGuidance: 'انتصاب در پروژه‌های استراتژیک و مسیر جانشین‌پروری' },
-          { boxId: 'core', boxTitle: 'سرمایه‌های کلیدی', headcount: 5, strategicGuidance: 'حفظ انگیزه و توانمندسازی مهارتی مستمر' }
-        ],
-        riskWarnings: ['نیاز به تدوین برنامه بهبود فردی (PIP) برای کارکنان گروه بحرانی'],
-        isFallback: true
-      }),
-      { status: 200, headers }
-    );
+    const prompt = `
+      شما یک مشاور ارشد منابع انسانی (HR) هستید. 
+      داده‌های ماتریس ۹ گانه (9-Box Grid):
+      ${JSON.stringify(summaryData, null, 2)}
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            executiveSummary: { type: Type.STRING },
+            talentHealthScore: { type: Type.INTEGER },
+            boxRecommendations: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  boxId: { type: Type.STRING },
+                  boxTitle: { type: Type.STRING },
+                  headcount: { type: Type.INTEGER },
+                  strategicGuidance: { type: Type.STRING },
+                  individualCoachingTips: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  recommendedActions: { type: Type.ARRAY, items: { type: Type.STRING } }
+                },
+                required: ["boxId", "boxTitle", "strategicGuidance", "individualCoachingTips", "recommendedActions"]
+              }
+            },
+            successionAndRetention: { type: Type.ARRAY, items: { type: Type.STRING } },
+            riskInterventions: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["executiveSummary", "talentHealthScore", "boxRecommendations", "successionAndRetention", "riskInterventions"]
+        }
+      }
+    });
+
+    const parsed = JSON.parse(response.text || "{}");
+    return new Response(JSON.stringify(parsed), { headers: { 'Content-Type': 'application/json' } });
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 };
-
-export const onRequestOptions: PagesFunction = async () => new Response(null, { status: 204, headers });

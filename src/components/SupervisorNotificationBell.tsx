@@ -25,7 +25,7 @@ interface SupervisorNotificationBellProps {
   onNavigate: (tab: string) => void;
   theme?: 'light' | 'dark';
   className?: string;
-  directNavigateOnClick?: boolean;
+  directNavigateOnClick?: boolean; // When true, clicking bell directly navigates to workflow
 }
 
 export default function SupervisorNotificationBell({
@@ -43,9 +43,10 @@ export default function SupervisorNotificationBell({
   const overdueList: OverdueEvaluationItem[] = getOverdueEvaluations(evaluations, employees, currentUser);
   const overdueCount = overdueList.length;
 
+  // Items pending approval/action by current user or in supervisor/admin scope
   const pendingApprovalsCount = useMemo(() => {
     return evaluations.filter(ev => {
-      if (ev.stage === 'completed' || ev.status === 'locked') return false;
+      if (ev.stage === 'completed') return false;
       const userRole = currentUser.role as string;
       const evStage = (ev.stage || '') as string;
       if (userRole === 'admin') return true;
@@ -62,6 +63,7 @@ export default function SupervisorNotificationBell({
   const totalPendingCount = Math.max(overdueCount, pendingApprovalsCount);
   const shouldShake = overdueCount > 5 || pendingApprovalsCount > 5;
 
+  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -74,7 +76,7 @@ export default function SupervisorNotificationBell({
 
   const handleToggleOrNavigate = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (overdueCount === 0 || directNavigateOnClick) {
+    if (overdueCount === 0) {
       onNavigate('workflow');
       return;
     }
@@ -89,23 +91,24 @@ export default function SupervisorNotificationBell({
 
   return (
     <div ref={containerRef} className={`relative inline-flex items-center ${className}`} dir="rtl">
+      {/* Smart Bell Unified Trigger Button */}
       <button
         type="button"
         onClick={handleToggleOrNavigate}
         title={totalPendingCount > 0 
-          ? `${totalPendingCount} مورد در انتظار بررسی یا معوقه`
-          : 'اعلان جدیدی وجود ندارد'
+          ? `${totalPendingCount} پرونده ارزیابی معوقه یا در انتظار اقدام - برای مشاهده جزئیات کلیک کنید` 
+          : 'اعلان‌های هوشمند: همه پرونده‌ها در وضعیت استاندارد قرار دارند'
         }
         className={`relative px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-2 group border ${
           totalPendingCount > 0
             ? theme === 'dark'
               ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300 shadow-sm'
               : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 shadow-xs'
-            : theme === 'dark'
-              ? 'bg-slate-900/80 hover:bg-slate-800 border-slate-800 text-slate-400 hover:text-slate-200'
+            : theme === 'dark' 
+              ? 'bg-slate-900/80 hover:bg-slate-800 border-slate-800 text-slate-400 hover:text-slate-200' 
               : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-800 shadow-xs'
         }`}
-        aria-label="اعلان‌های سرپرستی"
+        aria-label="اعلان پرونده‌های معوقه و در انتظار اقدام"
       >
         <div className="relative shrink-0">
           <Bell className={`w-4 h-4 transition-transform duration-300 ${
@@ -116,6 +119,7 @@ export default function SupervisorNotificationBell({
                 : ''
           }`} />
           
+          {/* Animated Ping Glow Ring if Overdue or Many Pending */}
           {totalPendingCount > 0 && (
             <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${shouldShake ? 'bg-rose-500 opacity-90' : 'bg-rose-400 opacity-75'}`}></span>
@@ -124,6 +128,7 @@ export default function SupervisorNotificationBell({
           )}
         </div>
 
+        {/* Overdue / Pending Badge with Count */}
         {totalPendingCount > 0 ? (
           <div className="flex items-center gap-1.5 font-bold text-xs">
             <span className={`px-1.5 py-0.2 rounded-md text-white font-mono text-[11px] flex items-center gap-1 ${
@@ -133,15 +138,16 @@ export default function SupervisorNotificationBell({
               {totalPendingCount}
             </span>
             <span className="text-[11px] font-bold">
-              {shouldShake ? 'نیازمند اقدام فوری' : overdueCount > 0 ? 'معوقه' : 'اقدام'}
+              {shouldShake ? 'اقدام فوری' : overdueCount > 0 ? 'معوقه' : 'در انتظار'}
             </span>
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
           </div>
         ) : (
-          <span className="hidden sm:inline text-[11px] text-slate-400 font-medium">اعلان‌ها</span>
+          <span className="hidden sm:inline text-[11px] text-slate-400 font-medium">به‌روز</span>
         )}
       </button>
 
+      {/* Interactive Overdue Dropdown Popover */}
       {isOpen && (
         <div 
           className={`fixed sm:absolute left-4 right-4 sm:left-0 sm:right-auto top-14 sm:top-full mt-2 sm:w-96 rounded-2xl border shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 backdrop-blur-xl ${
@@ -150,6 +156,7 @@ export default function SupervisorNotificationBell({
               : 'bg-white/98 border-slate-200 shadow-slate-300 text-slate-800'
           }`}
         >
+          {/* Header */}
           <div className={`flex items-center justify-between pb-3 border-b ${theme === 'dark' ? 'border-slate-800' : 'border-slate-200'}`}>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-rose-500/15 text-rose-500 flex items-center justify-center shrink-0">
@@ -157,10 +164,10 @@ export default function SupervisorNotificationBell({
               </div>
               <div>
                 <h4 className={`text-xs font-black ${theme === 'dark' ? 'text-slate-100' : 'text-slate-900'}`}>
-                  فرم‌های خارج از محدوده مجاز زمانی (SLA)
+                  پرونده‌های ارزیابی معوقه (SLA)
                 </h4>
                 <p className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
-                  تعداد {overdueCount} ارزیابی نیازمند بررسی سریع
+                  تعداد {overdueCount} ارزیابی بیش از مهلت مجاز در کارتابل مانده است
                 </p>
               </div>
             </div>
@@ -177,6 +184,7 @@ export default function SupervisorNotificationBell({
             </button>
           </div>
 
+          {/* List of Overdue Items */}
           <div className="max-h-64 overflow-y-auto space-y-2 py-3 pr-0.5">
             {overdueList.map((item) => (
               <div
@@ -203,11 +211,13 @@ export default function SupervisorNotificationBell({
                     {item.empCode}
                   </span>
                 </div>
+
                 <p className={`text-[11px] mt-1 font-medium leading-relaxed ${
                   theme === 'dark' ? 'text-rose-300/90' : 'text-rose-700'
                 }`}>
                   {item.reason}
                 </p>
+
                 <div className={`flex items-center justify-between mt-2 pt-2 border-t text-[10px] ${
                   theme === 'dark' ? 'border-slate-800/60' : 'border-slate-200'
                 }`}>
@@ -222,6 +232,7 @@ export default function SupervisorNotificationBell({
             ))}
           </div>
 
+          {/* Footer Navigation Action */}
           <div className={`pt-3 border-t ${theme === 'dark' ? 'border-slate-800' : 'border-slate-200'}`}>
             <button
               type="button"
@@ -229,7 +240,7 @@ export default function SupervisorNotificationBell({
               className="w-full py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-teal-600/20 cursor-pointer"
             >
               <GitFork className="w-4 h-4" />
-              <span>مشاهده در کارتابل گردش‌کار</span>
+              <span>انتقال به گردش کار و تعیین تکلیف</span>
               <ArrowLeft className="w-4 h-4" />
             </button>
           </div>

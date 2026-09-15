@@ -1,11 +1,13 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ * 
+ * Streamlined & Modern Sidebar Navigation
+ * Clean, uncluttered, role-aware, and highly responsive.
  */
 
 import React from 'react';
-import { 
-  LayoutDashboard, 
+import { LifeBuoy, LayoutDashboard, 
   FileSpreadsheet, 
   Briefcase, 
   Users, 
@@ -29,6 +31,7 @@ import {
   FileText
 } from 'lucide-react';
 import { Employee, UserRole } from '../types';
+import { canAccessTab } from '../utils/accessControl';
 
 interface SidebarProps {
   currentTab: string;
@@ -38,8 +41,6 @@ interface SidebarProps {
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
   hasCertifiedBadge: boolean;
-  employees?: Employee[];
-  onSwitchUser?: (empId: string) => void;
   onStartTour: () => void;
   onOpenManual?: () => void;
   canDownloadManual?: boolean;
@@ -61,47 +62,59 @@ export default function Sidebar({
   isMobileOpen = false,
   onCloseMobile
 }: SidebarProps) {
-  const menuGroups = [
+  
+  // Streamlined and clear navigation groups
+  type MenuItem = { id: string, label: string, icon: any, roles?: string[], permission?: string };
+  type MenuGroup = { title: string, items: MenuItem[] };
+  
+  const menuGroups: MenuGroup[] = [
     {
-      title: 'میز کار و عملیات',
+      title: 'میز کار و ارزیابی',
       items: [
-        { id: 'dashboard', label: 'داشبورد هوشمند', icon: LayoutDashboard, roles: ['admin', 'supervisor'] },
-        { id: 'my-evaluation', label: 'ارزیابی عملکرد من', icon: ShieldCheck, roles: ['employee'] },
-        { id: 'evaluations', label: 'ثبت و پایش ارزیابی', icon: ClipboardCheck, roles: ['admin', 'supervisor'] },
-        { id: 'workflow', label: 'مدیریت گردش‌کار (Workflow)', icon: GitFork, roles: ['admin', 'supervisor', 'employee'] },
+        { id: 'dashboard', label: 'داشبورد ارزیابی', icon: LayoutDashboard, roles: ['admin', 'supervisor'] },
+        { id: 'my-evaluation', label: 'کارنامه و خودارزیابی من', icon: ShieldCheck, roles: ['employee'] },
+        { id: 'evaluations', label: 'کارنامه‌های عملکرد', icon: ClipboardCheck, roles: ['admin', 'supervisor'] },
+        { id: 'workflow', label: 'گردش کار و تاییدات', icon: GitFork, roles: ['admin', 'supervisor', 'employee'] },
       ]
     },
     {
-      title: 'اهداف و بهره‌وری سازمانی',
+      title: 'اهداف و پایش عملکرد پیوسته',
       items: [
-        { id: 'lattice-hub', label: 'هاب اهداف OKR و مربیگری', icon: Target, roles: ['admin', 'supervisor', 'employee'] },
-        { id: 'kickidler-hub', label: 'پایش بهره‌وری و زمان مفید', icon: Monitor, roles: ['admin', 'supervisor'] },
+        { id: 'lattice-hub', label: 'اهداف OKR، جلسات ۱به۱ و تمجید', icon: Target, roles: ['admin', 'supervisor', 'employee'] },
+        { id: 'kickidler-hub', label: 'پایش زمان و بهره‌وری کارکرد', icon: Monitor, roles: ['admin', 'supervisor'] },
       ]
     },
     {
-      title: 'پایگاه اطلاعات و تعاریف',
+      title: 'شایستگی‌ها و شاخص‌ها',
       items: [
-        { id: 'criteria', label: 'بانک شاخص‌ها و فرمول KPI', icon: Calculator, roles: ['admin'] },
-        { id: 'profiles', label: 'پروفایل‌ها و ماتریس اوزان', icon: Briefcase, roles: ['admin'] },
-        { id: 'employees', label: 'فهرست پرسنل و دسترسی‌ها', icon: Users, roles: ['admin', 'supervisor'] },
+        { id: 'criteria', label: 'بانک شاخص‌ها و فرمول‌های KPI', icon: Calculator, roles: ['admin', 'supervisor', 'employee'], permission: 'manage_criteria' },
+        { id: 'profiles', label: 'پروفایل‌های شغلی', icon: Briefcase, roles: ['admin'] },
+        { id: 'employees', label: 'مدیریت کارکنان', icon: Users, roles: ['admin', 'supervisor', 'employee'], permission: 'manage_users' },
       ]
     },
     {
-      title: 'تحلیل، کالیبراسیون و تنظیمات',
+      title: 'تحلیل، آموزش و تنظیمات',
       items: [
-        { id: 'calibration', label: 'کالیبراسیون و توزیع نرمال', icon: Scale, roles: ['admin'] },
-        { id: 'reports', label: 'گزارشات راهبردی و ۹-Box', icon: TrendingUp, roles: ['admin', 'supervisor'] },
+        { id: 'calibration', label: 'کالیبراسیون نمرات', icon: Scale, roles: ['admin'] },
+        { id: 'reports', label: 'تحلیل‌ها و ماتریس ۹-Box', icon: TrendingUp, roles: ['admin', 'supervisor', 'employee'], permission: 'view_all_reports' },
+        { id: 'rewards', label: 'محاسبات ریالی پاداش', icon: Calculator, roles: ['admin'] },
         { id: 'settings', label: 'مرکز مدیریت و امنیت', icon: LockKeyhole, roles: ['admin'] },
-        { id: 'onboarding', label: 'آشناسازی و آزمون شایستگی', icon: BookOpen, roles: ['admin', 'supervisor', 'employee'] },
+        { id: 'onboarding', label: 'آموزش بدو ورود', icon: BookOpen, roles: ['admin', 'supervisor', 'employee'] },
+      ]
+    },
+    {
+      title: 'پشتیبانی',
+      items: [
+        { id: 'support', label: currentUser.role === 'admin' ? 'مدیریت تیکت‌ها' : 'پشتیبانی و ارتباط با مدیر', icon: LifeBuoy, roles: ['admin', 'supervisor', 'employee'] }
       ]
     }
   ];
 
   const getRoleLabel = (role: UserRole) => {
     switch (role) {
-      case 'admin': return 'مدیر ارشد منابع انسانی';
-      case 'supervisor': return 'سرپرست مستقیم کارگاه';
-      case 'employee': return 'پرسنل و ارزیابی‌شونده';
+      case 'admin': return 'مدیر منابع انسانی';
+      case 'supervisor': return 'سرپرست خط';
+      case 'employee': return 'اپراتور کارگاه';
     }
   };
 
@@ -114,6 +127,7 @@ export default function Sidebar({
 
   return (
     <>
+      {/* Mobile Backdrop Overlay */}
       {isMobileOpen && (
         <div 
           onClick={onCloseMobile}
@@ -121,6 +135,7 @@ export default function Sidebar({
         />
       )}
 
+      {/* Sidebar Container */}
       <aside className={`
         fixed inset-y-0 right-0 z-50 md:static md:z-auto
         w-72 border-l flex flex-col justify-between h-screen shrink-0 select-none
@@ -128,8 +143,11 @@ export default function Sidebar({
         ${isMobileOpen ? 'translate-x-0 shadow-2xl' : 'translate-x-full md:translate-x-0'}
         ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800 shadow-md'}
       `}>
+        
+        {/* Top Header & Navigation Links */}
         <div className="p-4 flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto overscroll-contain">
-          {/* Brand Header */}
+          
+          {/* Clean Brand Header */}
           <div className="flex items-center justify-between pb-1 border-b border-slate-800/40">
             <div 
               onClick={() => handleTabClick(currentUser.role === 'employee' ? 'my-evaluation' : 'dashboard')}
@@ -137,14 +155,15 @@ export default function Sidebar({
               title="صفحه اصلی"
             >
               <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 dark:border-slate-800 flex items-center justify-center p-1 shadow-sm shrink-0">
-                <img src="/logo.svg" alt="اصفهان چالاک" className="w-full h-full object-contain" />
+                <img src="/logo.svg" alt="لوگو چالاک" className="w-full h-full object-contain" />
               </div>
               <div className="min-w-0">
                 <h1 className="text-xs font-black tracking-tight truncate">اصفهان چالاک</h1>
-                <p className="text-[10px] text-teal-500 font-bold truncate">سامانه مدیریت عملکرد</p>
+                <p className="text-[10px] text-teal-500 font-bold truncate">سامانه نوین ارزیابی عملکرد</p>
               </div>
             </div>
 
+            {/* Mobile Close Button */}
             {onCloseMobile && (
               <button
                 type="button"
@@ -156,7 +175,7 @@ export default function Sidebar({
             )}
           </div>
 
-          {/* Active User Badge */}
+          {/* Clean Active User Badge */}
           <div className={`px-3 py-2 rounded-xl border text-right flex items-center justify-between ${
             theme === 'dark' ? 'bg-slate-950/60 border-slate-800/80' : 'bg-slate-50 border-slate-200 shadow-sm'
           }`}>
@@ -179,7 +198,9 @@ export default function Sidebar({
           {/* Navigation Menu */}
           <nav className="flex flex-col gap-3">
             {menuGroups.map((group, gIdx) => {
-              const visibleItems = group.items.filter(item => item.roles.includes(currentUser.role));
+              const visibleItems = group.items.filter(item => {
+              return canAccessTab(currentUser, item.id);
+            });
               if (visibleItems.length === 0) return null;
 
               return (
@@ -222,24 +243,27 @@ export default function Sidebar({
               );
             })}
           </nav>
+
         </div>
 
-        {/* Footer */}
+        {/* Footer: Streamlined Controls */}
         <div className={`p-3 border-t flex flex-col gap-2 shrink-0 ${
           theme === 'dark' ? 'border-slate-800 bg-slate-950/70' : 'border-slate-200 bg-slate-50'
         }`}>
+          {/* Comprehensive PDF Manual button */}
           {onOpenManual && (
             <button
               type="button"
               onClick={onOpenManual}
               className="w-full flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-[11px] font-bold transition-all shadow-md shadow-teal-600/20 cursor-pointer"
-              title={canDownloadManual ? "مشاهده و دانلود کتابچه جامع" : "مشاهده آنلاین کتابچه"}
+              title={canDownloadManual ? "مشاهده و دریافت کتابچه راهنمای جامع PDF" : "مشاهده آنلاین کتابچه راهنمای جامع سامانه"}
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>{canDownloadManual ? "کتابچه راهنما (PDF)" : "کتابچه راهنما (مشاهده)"}</span>
+              <span>{canDownloadManual ? "دانلود کتابچه راهنما (PDF)" : "مشاهده کتابچه راهنما (آنلاین)"}</span>
             </button>
           )}
 
+          {/* Interactive Tour link */}
           <button
             type="button"
             onClick={onStartTour}
@@ -249,6 +273,7 @@ export default function Sidebar({
             <span>راهنمای تعاملی سامانه</span>
           </button>
 
+          {/* Theme & Logout */}
           <div className="flex items-center justify-between pt-1">
             <button
               type="button"
@@ -261,6 +286,7 @@ export default function Sidebar({
               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               <span className="text-[10px] text-slate-400">{theme === 'dark' ? 'روز' : 'شب'}</span>
             </button>
+
             <button
               type="button"
               onClick={onLogout}
@@ -271,7 +297,9 @@ export default function Sidebar({
               <span>خروج</span>
             </button>
           </div>
+
         </div>
+
       </aside>
     </>
   );

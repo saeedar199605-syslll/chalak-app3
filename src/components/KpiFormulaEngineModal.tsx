@@ -1,6 +1,10 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ * 
+ * Dynamic KPI Formula Engine & Batch Evaluator Modal
+ * Allows creating custom KPIs with formulas, testing them interactively,
+ * and entering data to automatically compute 1-5 ratings directly into evaluations.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -32,7 +36,7 @@ import {
   JobProfile, 
   KpiCalculationType, 
   KpiVariableDefinition,
-  KpiScoreThresholds 
+  KpiScoreThresholds
 } from '../types';
 import { 
   calculateKpiScore, 
@@ -68,6 +72,7 @@ export default function KpiFormulaEngineModal({
 }: KpiFormulaEngineModalProps) {
   const [activeTab, setActiveTab] = useState<'define' | 'calculate' | 'batch'>('define');
 
+  // --- 1. KPI DEFINITION STATE ---
   const [kpiCode, setKpiCode] = useState('KPI-PRD-01');
   const [kpiName, setKpiName] = useState('');
   const [kpiDef, setKpiDef] = useState('');
@@ -78,11 +83,13 @@ export default function KpiFormulaEngineModal({
   const [kpiUnit, setKpiUnit] = useState('درصد');
   const [targetVal, setTargetVal] = useState<number>(100);
 
+  // Dynamic variables for the formula
   const [variables, setVariables] = useState<KpiVariableDefinition[]>([
-    { key: 'actual', label: 'تولید واقعی', unit: 'عدد', defaultValue: 95 },
-    { key: 'target', label: 'هدف تولید', unit: 'عدد', defaultValue: 100 }
+    { key: 'actual', label: 'عملکرد واقعی', unit: 'عدد', defaultValue: 95 },
+    { key: 'target', label: 'تارگت مصوب', unit: 'عدد', defaultValue: 100 }
   ]);
 
+  // Thresholds state
   const [thresholds, setThresholds] = useState<KpiScoreThresholds>({
     score5: 105,
     score4: 95,
@@ -90,6 +97,7 @@ export default function KpiFormulaEngineModal({
     score2: 70
   });
 
+  // Test Sandbox state
   const [testValues, setTestValues] = useState<Record<string, number>>({
     actual: 98,
     target: 100
@@ -97,18 +105,21 @@ export default function KpiFormulaEngineModal({
 
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // --- 2. SINGLE DATA ENTRY & AUTO EVALUATION STATE ---
   const [selectedKpiId, setSelectedKpiId] = useState<string>(() => {
     const kpi = criteria.find(c => c.calculationType || c.code.startsWith('K'));
     return kpi?.id || criteria[0]?.id || '';
   });
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => employees[0]?.id || '');
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('دوره بهار ۱۴۰۳');
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('بهار ۱۴۰۵');
   const [dataInputs, setDataInputs] = useState<Record<string, number>>({});
 
+  // Active selected KPI object
   const activeSelectedKpi = useMemo(() => {
     return criteria.find(c => c.id === selectedKpiId) || criteria[0];
   }, [criteria, selectedKpiId]);
 
+  // Initialize data inputs when active KPI changes
   React.useEffect(() => {
     if (!activeSelectedKpi) return;
     const initial: Record<string, number> = {};
@@ -123,16 +134,18 @@ export default function KpiFormulaEngineModal({
     setDataInputs(initial);
   }, [activeSelectedKpi]);
 
+  // Live calculation for single entry tab
   const singleCalculationResult = useMemo(() => {
     if (!activeSelectedKpi) return null;
     return calculateKpiScore(activeSelectedKpi, dataInputs);
   }, [activeSelectedKpi, dataInputs]);
 
+  // Live calculation for definition sandbox
   const sandboxKpiDummy: Criterion = useMemo(() => {
     return {
       id: 'dummy',
       code: kpiCode,
-      name: kpiName || 'شاخص نمونه',
+      name: kpiName || 'شاخص تستی',
       cat: kpiCat,
       def: kpiDef,
       dir: kpiDir,
@@ -151,6 +164,7 @@ export default function KpiFormulaEngineModal({
 
   if (!isOpen) return null;
 
+  // Preset formula switch handler
   const handleCalcTypeChange = (type: KpiCalculationType) => {
     setCalcType(type);
     if (type === 'ratio') {
@@ -159,47 +173,48 @@ export default function KpiFormulaEngineModal({
       setKpiUnit('درصد');
       setVariables([
         { key: 'actual', label: 'تولید واقعی', unit: 'عدد', defaultValue: 95 },
-        { key: 'target', label: 'هدف تولید', unit: 'عدد', defaultValue: 100 }
+        { key: 'target', label: 'برنامه مصوب', unit: 'عدد', defaultValue: 100 }
       ]);
       setTestValues({ actual: 98, target: 100 });
       setThresholds(DEFAULT_KPI_THRESHOLDS);
     } else if (type === 'inverse_ratio') {
       setCustomFormula('(standard / actual) * 100');
       setKpiDir('more');
-      setKpiUnit('درصد');
+      setKpiUnit('درصد راندمان');
       setVariables([
-        { key: 'actual', label: 'زمان واقعی چرخه', unit: 'ثانیه', defaultValue: 58 },
-        { key: 'standard', label: 'زمان استاندارد', unit: 'ثانیه', defaultValue: 60 }
+        { key: 'actual', label: 'سایکل‌تایم واقعی', unit: 'ثانیه', defaultValue: 58 },
+        { key: 'standard', label: 'استاندارد مهندسی خط', unit: 'ثانیه', defaultValue: 60 }
       ]);
       setTestValues({ actual: 58, standard: 60 });
       setThresholds(DEFAULT_KPI_THRESHOLDS);
     } else if (type === 'defect_rate') {
       setCustomFormula('100 - ((scrap / total) * 100)');
       setKpiDir('more');
-      setKpiUnit('درصد کیفیت');
+      setKpiUnit('درصد سلامت');
       setVariables([
         { key: 'scrap', label: 'تعداد قطعات ضایعاتی', unit: 'عدد', defaultValue: 3 },
-        { key: 'total', label: 'کل قطعات بازرسی‌شده', unit: 'عدد', defaultValue: 100 }
+        { key: 'total', label: 'کل قطعات تولیدی', unit: 'عدد', defaultValue: 100 }
       ]);
       setTestValues({ scrap: 2, total: 100 });
       setThresholds(DEFAULT_KPI_THRESHOLDS);
     } else if (type === 'custom_formula') {
       setCustomFormula('(actual / target) * 80 + (quality_score * 0.2)');
       setVariables([
-        { key: 'actual', label: 'تولید واقعی', unit: 'عدد', defaultValue: 90 },
-        { key: 'target', label: 'هدف تولید', unit: 'عدد', defaultValue: 100 },
-        { key: 'quality_score', label: 'نمره کیفی بازرسی', unit: 'نمره', defaultValue: 98 }
+        { key: 'actual', label: 'عملکرد خط', unit: 'واحد', defaultValue: 90 },
+        { key: 'target', label: 'هدف استاندارد', unit: 'واحد', defaultValue: 100 },
+        { key: 'quality_score', label: 'نمره کیفی', unit: 'درصد', defaultValue: 98 }
       ]);
       setTestValues({ actual: 95, target: 100, quality_score: 98 });
     }
   };
 
+  // Add variable to formula definition
   const handleAddVariable = () => {
     const nextKey = `var_${variables.length + 1}`;
     const newVar: KpiVariableDefinition = {
       key: nextKey,
       label: `متغیر ${variables.length + 1}`,
-      unit: 'واحد',
+      unit: 'مقدار',
       defaultValue: 10
     };
     setVariables([...variables, newVar]);
@@ -214,14 +229,16 @@ export default function KpiFormulaEngineModal({
     setTestValues(nextTest);
   };
 
+  // Append operator to formula
   const handleAppendToFormula = (token: string) => {
     setCustomFormula(prev => prev ? `${prev} ${token} ` : token);
   };
 
+  // Save new KPI
   const handleSaveKpi = (e: React.FormEvent) => {
     e.preventDefault();
     if (!kpiCode.trim() || !kpiName.trim()) {
-      setFeedback({ type: 'error', message: 'کد و عنوان شاخص الزامی است.' });
+      setFeedback({ type: 'error', message: 'لطفاً کد شاخص و عنوان آن را وارد کنید.' });
       return;
     }
 
@@ -229,7 +246,7 @@ export default function KpiFormulaEngineModal({
       code: kpiCode.trim().toUpperCase(),
       name: kpiName.trim(),
       cat: kpiCat,
-      def: kpiDef.trim() || `تعریف شاخص ${kpiName}`,
+      def: kpiDef.trim() || `فرمول محاسباتی برای شاخص ${kpiName}`,
       dir: kpiDir,
       calculationType: calcType,
       formulaExpression: customFormula.trim(),
@@ -237,31 +254,36 @@ export default function KpiFormulaEngineModal({
       unit: kpiUnit,
       targetValue: targetVal,
       scoreThresholds: thresholds,
-      source: 'محاسبه خودکار سیستم',
-      method: `فرمول: ${customFormula}`
+      source: 'موتور محاسبات شاخص‌های عملکرد اصفهان چالاک',
+      method: `فرمول خودکار: ${customFormula}`
     };
 
     const success = onAddCriterion(newCrit);
     if (success) {
-      setFeedback({ type: 'success', message: `شاخص ${kpiName} با موفقیت در بانک ثبت گردید.` });
+      setFeedback({ type: 'success', message: `شاخص ${kpiName} با فرمول محاسباتی خودکار با موفقیت ثبت شد.` });
+      // Reset or stay
       setTimeout(() => setFeedback(null), 4000);
     } else {
-      setFeedback({ type: 'error', message: 'کد شاخص تکراری است.' });
+      setFeedback({ type: 'error', message: 'کد شاخص تکراری است یا مشکلی در اعتبارسنجی رخ داده است.' });
     }
   };
 
+  // Apply single calculation directly into Evaluation
   const handleApplySingleScore = () => {
     if (!singleCalculationResult || !activeSelectedKpi) return;
+
     const emp = employees.find(e => e.id === selectedEmpId);
     if (!emp) {
-      setFeedback({ type: 'error', message: 'کارمندی انتخاب نشده است.' });
+      setFeedback({ type: 'error', message: 'کارمند موردنظر یافت نشد.' });
       return;
     }
 
+    // Find or create evaluation
     let targetEval = evaluations.find(ev => ev.empId === selectedEmpId && ev.period === selectedPeriod);
     let nextEvaluations = [...evaluations];
 
     if (!targetEval) {
+      // Create new evaluation
       const prof = profiles.find(p => p.id === emp.profileId) || profiles[0];
       const initialScores = (prof?.items || []).map(item => ({
         cid: item.cid,
@@ -271,6 +293,7 @@ export default function KpiFormulaEngineModal({
         doc: item.cid === activeSelectedKpi.id ? singleCalculationResult.summaryText : ''
       }));
 
+      // Ensure the KPI is in scores even if not in standard profile
       if (!initialScores.some(s => s.cid === activeSelectedKpi.id)) {
         initialScores.push({
           cid: activeSelectedKpi.id,
@@ -292,8 +315,10 @@ export default function KpiFormulaEngineModal({
       };
       nextEvaluations.push(newEv);
     } else {
+      // Update existing evaluation score
       const updatedScores = [...targetEval.scores];
       const scoreIndex = updatedScores.findIndex(s => s.cid === activeSelectedKpi.id);
+
       if (scoreIndex >= 0) {
         updatedScores[scoreIndex] = {
           ...updatedScores[scoreIndex],
@@ -319,16 +344,20 @@ export default function KpiFormulaEngineModal({
     onUpdateEvaluations(nextEvaluations);
     setFeedback({
       type: 'success',
-      message: `نمره ${singleCalculationResult.score} برای ${emp.name} ثبت شد.`
+      message: `امتیاز ${singleCalculationResult.score} از ۵ بر اساس فرمول محاسبه و مستقیماً در کارنامه ${emp.name} درج شد.`
     });
     setTimeout(() => setFeedback(null), 4000);
   };
+
+  if (!isOpen) return null;
 
   return typeof document !== 'undefined' ? createPortal(
     <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto animate-in fade-in" dir="rtl">
       <div className={`relative w-full max-w-5xl rounded-3xl border shadow-2xl overflow-hidden my-6 flex flex-col max-h-[92vh] ${
         theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
       }`}>
+        
+        {/* HEADER */}
         <div className={`p-5 md:px-7 border-b flex items-center justify-between shrink-0 ${
           theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
         }`}>
@@ -338,16 +367,17 @@ export default function KpiFormulaEngineModal({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-black">موتور فرمول‌نویسی و محاسبه خودکار نمرات شاخص‌ها (KPI)</h2>
+                <h2 className="text-base font-black">موتور هوشمند فرمول‌ساز و ارزیاب خودکار KPI</h2>
                 <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono font-bold">
                   v3.8 Dynamic Engine
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                تعریف فرمول‌های پویا، جدول حدود آستانه و تبدیل خودکار داده‌های خام تولید به مقیاس ۱ تا ۵
+                تعریف شاخص‌های جدید با فرمول‌های ریاضی دلخواه، دریافت داده‌های خام و تبدیل آنی به نمرات ۱ تا ۵ کارنامه
               </p>
             </div>
           </div>
+
           <button
             type="button"
             onClick={onClose}
@@ -357,6 +387,7 @@ export default function KpiFormulaEngineModal({
           </button>
         </div>
 
+        {/* NAVIGATION TABS */}
         <div className="flex items-center gap-2 px-6 pt-4 border-b border-slate-800/40 bg-slate-950/30">
           <button
             type="button"
@@ -368,8 +399,9 @@ export default function KpiFormulaEngineModal({
             }`}
           >
             <Plus className="w-4 h-4" />
-            <span>تعریف شاخص با فرمول اختصاصی</span>
+            <span>۱. تعریف شاخص جدید و طراحی فرمول</span>
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('calculate')}
@@ -380,10 +412,11 @@ export default function KpiFormulaEngineModal({
             }`}
           >
             <Zap className="w-4 h-4 text-amber-400" />
-            <span>ورود داده و محاسبه نمره کارمند</span>
+            <span>۲. ورود داده‌های خام و محاسبه خودکار نمره</span>
           </button>
         </div>
 
+        {/* FEEDBACK BANNER */}
         {feedback && (
           <div className={`mx-6 mt-4 p-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-in fade-in ${
             feedback.type === 'success' 
@@ -400,18 +433,26 @@ export default function KpiFormulaEngineModal({
           </div>
         )}
 
+        {/* CONTENT AREA */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+          {/* ========================================================================= */}
+          {/* TAB 1: DEFINE NEW KPI WITH CUSTOM FORMULA                                 */}
+          {/* ========================================================================= */}
           {activeTab === 'define' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              
+              {/* Left Form: Metadata & Formula Builder */}
               <div className="lg:col-span-7 space-y-5">
                 <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800/80 space-y-4">
                   <h3 className="text-xs font-black text-emerald-400 flex items-center gap-2">
                     <Sliders className="w-4 h-4" />
-                    <span>اطلاعات عمومی شاخص</span>
+                    <span>اطلاعات پایه شاخص</span>
                   </h3>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-[11px] font-bold text-slate-400 block mb-1">کد شاخص (یکتا)</label>
+                      <label className="text-[11px] font-bold text-slate-400 block mb-1">کد شاخص (با پیشوند)</label>
                       <input
                         type="text"
                         value={kpiCode}
@@ -421,49 +462,54 @@ export default function KpiFormulaEngineModal({
                         dir="ltr"
                       />
                     </div>
+
                     <div>
-                      <label className="text-[11px] font-bold text-slate-400 block mb-1">دسته شایستگی</label>
+                      <label className="text-[11px] font-bold text-slate-400 block mb-1">دسته‌بندی</label>
                       <select
                         value={kpiCat}
                         onChange={(e) => setKpiCat(e.target.value as any)}
                         className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-emerald-500"
                       >
-                        <option value="K">K - عملکرد کمی (KPI)</option>
-                        <option value="Q">Q - شایستگی کیفی</option>
-                        <option value="B">B - شایستگی رفتاری</option>
-                        <option value="S">S - ایمنی و HSE</option>
-                        <option value="L">L - رهبری و تیمی</option>
+                        <option value="K">K - شاخص‌های کلیدی عملکرد (KPI)</option>
+                        <option value="Q">Q - کنترل کیفیت و ضایعات</option>
+                        <option value="B">B - رفتاری و شایستگی‌های عمومی</option>
+                        <option value="S">S - ایمنی، بهداشت و ۵اس</option>
+                        <option value="L">L - مهارت‌های فنی و رهبری</option>
                       </select>
                     </div>
                   </div>
+
                   <div>
-                    <label className="text-[11px] font-bold text-slate-400 block mb-1">عنوان کامل شاخص</label>
+                    <label className="text-[11px] font-bold text-slate-400 block mb-1">عنوان شاخص</label>
                     <input
                       type="text"
                       value={kpiName}
                       onChange={(e) => setKpiName(e.target.value)}
-                      placeholder="مثال: راندمان تولید سلول رباتیک"
+                      placeholder="مثال: راندمان خط بسته‌بندی بر حسب تارگت شیفت"
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-emerald-500"
                     />
                   </div>
+
                   <div>
-                    <label className="text-[11px] font-bold text-slate-400 block mb-1">تعریف و نحوه سنجش</label>
+                    <label className="text-[11px] font-bold text-slate-400 block mb-1">تعریف عملیاتی و منطق سنجش</label>
                     <textarea
                       rows={2}
                       value={kpiDef}
                       onChange={(e) => setKpiDef(e.target.value)}
-                      placeholder="توضیح هدف و کاربرد این شاخص در خط..."
+                      placeholder="شرح روش اندازه‌گیری و کاربرد صنعتی شاخص..."
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
                     />
                   </div>
                 </div>
 
+                {/* Formula Type & Expression */}
                 <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800/80 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-black text-emerald-400 flex items-center gap-2">
                       <Calculator className="w-4 h-4" />
-                      <span>فرمول ریاضی محاسبه</span>
+                      <span>نوع محاسبه و فرمول ریاضی</span>
                     </h3>
+
                     <div className="flex items-center gap-1.5 text-[10px]">
                       <span className="text-slate-400">جهت مطلوبیت:</span>
                       <button
@@ -473,11 +519,12 @@ export default function KpiFormulaEngineModal({
                           kpiDir === 'more' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
                         }`}
                       >
-                        {kpiDir === 'more' ? 'بیشتر مطلوب‌تر' : 'کمتر مطلوب‌تر'}
+                        {kpiDir === 'more' ? 'هرچه بیشتر بهتر (More)' : 'هرچه کمتر بهتر (Less)'}
                       </button>
                     </div>
                   </div>
 
+                  {/* Preset Buttons */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <button
                       type="button"
@@ -488,9 +535,10 @@ export default function KpiFormulaEngineModal({
                           : 'border-slate-800 hover:bg-slate-800/40 text-slate-400 text-xs'
                       }`}
                     >
-                      <div className="text-[11px] font-bold">راندمان ساده</div>
+                      <div className="text-[11px] font-bold">تحقق برنامه</div>
                       <div className="text-[9px] text-slate-500 font-mono mt-0.5">(actual/target)*100</div>
                     </button>
+
                     <button
                       type="button"
                       onClick={() => handleCalcTypeChange('inverse_ratio')}
@@ -500,9 +548,10 @@ export default function KpiFormulaEngineModal({
                           : 'border-slate-800 hover:bg-slate-800/40 text-slate-400 text-xs'
                       }`}
                     >
-                      <div className="text-[11px] font-bold">معکوس (زمان چرخه)</div>
+                      <div className="text-[11px] font-bold">سایکل‌تایم و زمان</div>
                       <div className="text-[9px] text-slate-500 font-mono mt-0.5">(standard/actual)*100</div>
                     </button>
+
                     <button
                       type="button"
                       onClick={() => handleCalcTypeChange('defect_rate')}
@@ -512,9 +561,10 @@ export default function KpiFormulaEngineModal({
                           : 'border-slate-800 hover:bg-slate-800/40 text-slate-400 text-xs'
                       }`}
                     >
-                      <div className="text-[11px] font-bold">نرخ کیفیت / عیوب</div>
+                      <div className="text-[11px] font-bold">کنترل ضایعات</div>
                       <div className="text-[9px] text-slate-500 font-mono mt-0.5">100 - (scrap/total)*100</div>
                     </button>
+
                     <button
                       type="button"
                       onClick={() => handleCalcTypeChange('custom_formula')}
@@ -524,14 +574,15 @@ export default function KpiFormulaEngineModal({
                           : 'border-slate-800 hover:bg-slate-800/40 text-slate-400 text-xs'
                       }`}
                     >
-                      <div className="text-[11px] font-bold">فرمول سفارشی</div>
-                      <div className="text-[9px] text-slate-500 font-mono mt-0.5">ترکیب دلخواه متغیرها</div>
+                      <div className="text-[11px] font-bold">فرمول دلخواه</div>
+                      <div className="text-[9px] text-slate-500 font-mono mt-0.5">ترکیبی و سفارشی</div>
                     </button>
                   </div>
 
+                  {/* Formula Expression Input */}
                   <div>
                     <label className="text-[11px] font-bold text-slate-400 block mb-1">
-                      عبارت فرمول (از نام متغیرها و عملگرهای ریاضی استفاده نمایید):
+                      عبارت فرمول ریاضی:
                     </label>
                     <input
                       type="text"
@@ -542,6 +593,7 @@ export default function KpiFormulaEngineModal({
                     />
                   </div>
 
+                  {/* Quick Calculator Pad Buttons */}
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     <span className="text-[10px] text-slate-400 ml-2">درج سریع:</span>
                     {['+', '-', '*', '/', '(', ')', '%'].map(op => (
@@ -554,6 +606,7 @@ export default function KpiFormulaEngineModal({
                         {op}
                       </button>
                     ))}
+
                     {variables.map(v => (
                       <button
                         key={v.key}
@@ -566,18 +619,19 @@ export default function KpiFormulaEngineModal({
                     ))}
                   </div>
 
+                  {/* Variables Manager */}
                   <div className="pt-2 border-t border-slate-800/60 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-300">مدیریت متغیرهای ورودی این فرمول:</span>
+                      <span className="text-[11px] font-bold text-slate-300">متغیرهای ورودی این فرمول:</span>
                       <button
                         type="button"
                         onClick={handleAddVariable}
                         className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
                       >
-                        <Plus className="w-3 h-3" />
-                        افزودن متغیر جدید
+                        <Plus className="w-3 h-3" /> افزودن متغیر جدید
                       </button>
                     </div>
+
                     <div className="space-y-1.5 max-h-40 overflow-y-auto">
                       {variables.map((v, idx) => (
                         <div key={idx} className="flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
@@ -590,7 +644,7 @@ export default function KpiFormulaEngineModal({
                               setVariables(updated);
                             }}
                             className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono text-emerald-300"
-                            placeholder="نام کلید (key)"
+                            placeholder="نام انگلیسی"
                             dir="ltr"
                           />
                           <input
@@ -602,7 +656,7 @@ export default function KpiFormulaEngineModal({
                               setVariables(updated);
                             }}
                             className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs"
-                            placeholder="عنوان نمایشی فارسی"
+                            placeholder="عنوان فارسی"
                           />
                           <input
                             type="text"
@@ -636,19 +690,30 @@ export default function KpiFormulaEngineModal({
                   className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 cursor-pointer transition-all"
                 >
                   <Save className="w-4 h-4" />
-                  <span>ثبت و انتشار شاخص در بانک شاخص‌ها</span>
+                  <span>ثبت نهایی و افزودن شاخص به بانک شایستگی‌ها</span>
                 </button>
               </div>
 
+              {/* Right Side: Interactive Sandbox & Thresholds */}
               <div className="lg:col-span-5 space-y-5">
+                
+                {/* Live Simulation Card */}
                 <div className="p-5 rounded-3xl bg-gradient-to-b from-slate-900 to-slate-950 border border-emerald-500/30 shadow-xl space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-black text-emerald-400 flex items-center gap-2">
                       <Play className="w-4 h-4" />
-                      <span>تست فرمول در محیط زنده (Sandbox Simulation)</span>
+                      <span>تست زنده فرمول (Sandbox Simulation)</span>
                     </h3>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                      ارزیابی آنی
+                    </span>
                   </div>
 
+                  <p className="text-[11px] text-slate-400">
+                    اعداد تستی را تغییر دهید تا نحوه محاسبه نمره ۱ تا ۵ را بلافاصله ببینید:
+                  </p>
+
+                  {/* Variables Inputs for Sandbox */}
                   <div className="space-y-2">
                     {variables.map(v => (
                       <div key={v.key} className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800">
@@ -670,16 +735,17 @@ export default function KpiFormulaEngineModal({
                     ))}
                   </div>
 
+                  {/* Calculation Result Display */}
                   <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-400">مقدار محاسبه‌شده:</span>
+                      <span className="text-xs font-bold text-slate-400">مقدار خام محاسبه‌شده:</span>
                       <span className="text-lg font-black font-mono text-teal-400">
                         {sandboxResult.computedValue} {kpiUnit}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-                      <span className="text-xs font-bold text-slate-300">نمره نهایی متناظر (۱ تا ۵):</span>
+                      <span className="text-xs font-bold text-slate-300">نمره استاندارد کارنامه (۱ تا ۵):</span>
                       <div className="flex items-center gap-2">
                         <span className={`text-2xl font-black font-mono px-3 py-0.5 rounded-xl ${
                           sandboxResult.score >= 4
@@ -695,7 +761,7 @@ export default function KpiFormulaEngineModal({
                     </div>
 
                     <div className="text-[11px] text-slate-400 bg-slate-900 p-2.5 rounded-xl border border-slate-800/80">
-                      <span className="font-bold text-slate-200">وضعیت: </span>
+                      <span className="font-bold text-slate-200">وضعیت ارزیابی: </span>
                       <span className={sandboxResult.score >= 4 ? 'text-emerald-400' : 'text-amber-400'}>
                         {sandboxResult.statusLabel}
                       </span>
@@ -704,14 +770,19 @@ export default function KpiFormulaEngineModal({
                   </div>
                 </div>
 
+                {/* Score Thresholds Configuration */}
                 <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800/80 space-y-3">
                   <h3 className="text-xs font-black text-slate-300 flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-teal-400" />
-                    <span>حدود آستانه نمره‌دهی (Thresholds)</span>
+                    <span>آستانه‌های نمره‌دهی (Thresholds)</span>
                   </h3>
+                  <p className="text-[10px] text-slate-400">
+                    تعیین حداقل مقدار لازم برای کسب هر نمره از ۱ تا ۵:
+                  </p>
+
                   <div className="grid grid-cols-2 gap-2">
                     <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
-                      <div className="text-[10px] font-bold text-emerald-400">نمره ۵ (عالی)</div>
+                      <div className="text-[10px] font-bold text-emerald-400">نمره ۵ (عالی / فوق‌العاده)</div>
                       <div className="flex items-center gap-1 mt-1">
                         <span className="text-[10px] text-slate-400">حداقل:</span>
                         <input
@@ -723,8 +794,9 @@ export default function KpiFormulaEngineModal({
                         />
                       </div>
                     </div>
+
                     <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
-                      <div className="text-[10px] font-bold text-teal-400">نمره ۴ (خوب)</div>
+                      <div className="text-[10px] font-bold text-teal-400">نمره ۴ (بسیار خوب)</div>
                       <div className="flex items-center gap-1 mt-1">
                         <span className="text-[10px] text-slate-400">حداقل:</span>
                         <input
@@ -736,29 +808,65 @@ export default function KpiFormulaEngineModal({
                         />
                       </div>
                     </div>
+
+                    <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+                      <div className="text-[10px] font-bold text-blue-400">نمره ۳ (منطبق بر هدف)</div>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-[10px] text-slate-400">حداقل:</span>
+                        <input
+                          type="number"
+                          value={thresholds.score3}
+                          onChange={(e) => setThresholds({ ...thresholds, score3: Number(e.target.value) })}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs font-mono font-bold text-left"
+                          dir="ltr"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+                      <div className="text-[10px] font-bold text-amber-400">نمره ۲ (نیاز به بهبود)</div>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-[10px] text-slate-400">حداقل:</span>
+                        <input
+                          type="number"
+                          value={thresholds.score2}
+                          onChange={(e) => setThresholds({ ...thresholds, score2: Number(e.target.value) })}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs font-mono font-bold text-left"
+                          dir="ltr"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
+
               </div>
+
             </div>
           )}
 
+          {/* ========================================================================= */}
+          {/* TAB 2: DATA INPUT & AUTO EVALUATION                                      */}
+          {/* ========================================================================= */}
           {activeTab === 'calculate' && (
             <div className="space-y-6">
+              
+              {/* Header explanation */}
               <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Zap className="w-5 h-5 text-emerald-400 shrink-0" />
                   <div>
-                    <h3 className="text-xs font-black text-emerald-300">محاسبه و ثبت بی‌درنگ نمره در پرونده ارزیابی</h3>
+                    <h3 className="text-xs font-black text-emerald-300">ورود داده‌های عملکردی و درج آنی در کارنامه</h3>
                     <p className="text-[11px] text-slate-300 mt-0.5">
-                      با وارد کردن اعداد واقعی تولید، نمره فرمول محاسبه شده و مستقیماً به ارزیابی همکار تزریق می‌شود.
+                      فقط مقادیر خام را وارد کنید؛ سامانه طبق فرمول شاخص، درصد تحقق و امتیاز ۱ تا ۵ را محاسبه و مستقیماً در کارنامه فرد درج می‌کند.
                     </p>
                   </div>
                 </div>
               </div>
 
+              {/* Selection Bar */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-2xl bg-slate-950/40 border border-slate-800">
                 <div>
-                  <label className="text-[11px] font-bold text-slate-400 block mb-1">انتخاب شاخص:</label>
+                  <label className="text-[11px] font-bold text-slate-400 block mb-1">شاخص ارزیابی موردنظر:</label>
                   <select
                     value={selectedKpiId}
                     onChange={(e) => setSelectedKpiId(e.target.value)}
@@ -766,13 +874,14 @@ export default function KpiFormulaEngineModal({
                   >
                     {criteria.map(c => (
                       <option key={c.id} value={c.id}>
-                        [{c.code}] {c.name} {c.formulaExpression ? '(فرمول‌دار)' : ''}
+                        [{c.code}] {c.name} {c.formulaExpression ? '⚡' : ''}
                       </option>
                     ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="text-[11px] font-bold text-slate-400 block mb-1">انتخاب کارمند:</label>
+                  <label className="text-[11px] font-bold text-slate-400 block mb-1">همکار و اپراتور:</label>
                   <select
                     value={selectedEmpId}
                     onChange={(e) => setSelectedEmpId(e.target.value)}
@@ -785,6 +894,7 @@ export default function KpiFormulaEngineModal({
                     ))}
                   </select>
                 </div>
+
                 <div>
                   <label className="text-[11px] font-bold text-slate-400 block mb-1">دوره ارزیابی:</label>
                   <select
@@ -792,20 +902,28 @@ export default function KpiFormulaEngineModal({
                     onChange={(e) => setSelectedPeriod(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="دوره بهار ۱۴۰۳">دوره بهار ۱۴۰۳ (فعال)</option>
-                    <option value="شش ماهه دوم ۱۴۰۴">شش ماهه دوم ۱۴۰۴</option>
+                    <option value="بهار ۱۴۰۵">بهار ۱۴۰۵ (دوره فعال)</option>
+                    <option value="تابستان ۱۴۰۵">تابستان ۱۴۰۵</option>
+                    <option value="پاییز ۱۴۰۵">پاییز ۱۴۰۵</option>
+                    <option value="زمستان ۱۴۰۴">زمستان ۱۴۰۴</option>
                   </select>
                 </div>
               </div>
 
+              {/* Data Input Form for selected KPI */}
               {activeSelectedKpi && (
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                  
+                  {/* Left: Input fields */}
                   <div className="md:col-span-7 p-5 rounded-2xl bg-slate-950/40 border border-slate-800 space-y-4">
                     <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                       <div>
                         <span className="text-xs font-black text-slate-200">
-                          ورودی‌های عددی شاخص: {activeSelectedKpi.name}
+                          ورود داده‌های شاخص: {activeSelectedKpi.name}
                         </span>
+                        <p className="text-[10px] font-mono text-emerald-400 mt-0.5">
+                          فرمول سنجش: {activeSelectedKpi.formulaExpression || '(actual / target) * 100'}
+                        </p>
                       </div>
                       <span className="text-[10px] bg-slate-800 px-2 py-1 rounded font-mono text-slate-300">
                         {activeSelectedKpi.code}
@@ -833,10 +951,12 @@ export default function KpiFormulaEngineModal({
                           </div>
                         ))
                       ) : (
+                        // Standard fallback inputs
                         <>
                           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-800">
                             <div>
-                              <div className="text-xs font-bold text-slate-200">مقدار واقعی (Actual)</div>
+                              <div className="text-xs font-bold text-slate-200">عملکرد و تولید واقعی (Actual)</div>
+                              <div className="text-[10px] text-slate-500">تعداد یا مقدار تحقق یافته</div>
                             </div>
                             <input
                               type="number"
@@ -846,9 +966,11 @@ export default function KpiFormulaEngineModal({
                               dir="ltr"
                             />
                           </div>
+
                           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-800">
                             <div>
-                              <div className="text-xs font-bold text-slate-200">مقدار هدف (Target)</div>
+                              <div className="text-xs font-bold text-slate-200">تارگت و برنامه مصوب (Target)</div>
+                              <div className="text-[10px] text-slate-500">هدف ابلاغی دوره</div>
                             </div>
                             <input
                               type="number"
@@ -863,23 +985,38 @@ export default function KpiFormulaEngineModal({
                     </div>
                   </div>
 
+                  {/* Right: Calculated Live Score & Action */}
                   <div className="md:col-span-5 p-5 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 border border-emerald-500/30 flex flex-col justify-between space-y-4">
                     <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400">نتیجه محاسبه فرمول:</span>
+                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-bold">
+                          اتوماتیک
+                        </span>
+                      </div>
+
                       <div className="mt-4 p-4 rounded-2xl bg-slate-950/90 border border-slate-800 text-center space-y-2">
                         <div className="text-2xl font-black font-mono text-teal-400">
                           {singleCalculationResult?.computedValue ?? 0} {activeSelectedKpi.unit || '%'}
                         </div>
+                        <div className="text-xs text-slate-400">راندمان و شاخص عملکردی</div>
+
                         <div className="pt-3 border-t border-slate-800 flex items-center justify-center gap-3">
-                          <span className="text-xs font-bold text-slate-300">نمره کسب‌شده:</span>
+                          <span className="text-xs font-bold text-slate-300">امتیاز نهایی کارنامه:</span>
                           <span className="text-3xl font-black font-mono text-emerald-400 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
                             {singleCalculationResult?.score ?? 3}
                           </span>
                           <span className="text-xs text-slate-400">از ۵</span>
                         </div>
+
                         <div className="text-[11px] text-emerald-400 font-bold pt-1">
                           {singleCalculationResult?.statusLabel}
                         </div>
                       </div>
+
+                      <p className="text-[10px] text-slate-400 mt-3 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                        مستندات ثبت در کارنامه: {singleCalculationResult?.summaryText}
+                      </p>
                     </div>
 
                     <button
@@ -888,18 +1025,26 @@ export default function KpiFormulaEngineModal({
                       className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer transition-all"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>ثبت نمره محاسبه‌شده در ارزیابی پرسنل</span>
+                      <span>محاسبه و درج مستقیم در کارنامه ارزیابی</span>
                     </button>
                   </div>
+
                 </div>
               )}
+
             </div>
           )}
+
         </div>
 
+        {/* FOOTER */}
         <div className={`p-4 px-6 border-t flex items-center justify-between shrink-0 ${
           theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
         }`}>
+          <span className="text-[11px] text-slate-400">
+            سیستم ارزیابی عملکرد و توسعه شایستگی اصفهان چالاک • موتور فرمول‌ساز هوشمند
+          </span>
+
           <button
             type="button"
             onClick={onClose}
@@ -908,6 +1053,7 @@ export default function KpiFormulaEngineModal({
             بستن پنجره
           </button>
         </div>
+
       </div>
     </div>,
     document.body

@@ -1,125 +1,46 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Centralized Database & Real-Time Cloudflare KV Synchronization Engine
  * 
- * Features:
- * - Real-Time Multi-User Auto-Sync across Cloudflare Pages & Workers
- * - Fast background version polling & visibility-change sync
- * - Complete coverage of all organizational data (OKRs, 1-on-1s, Kudos, Passwords, RBAC, Targets)
- * - Safe conflict-free optimistic updates with reactive listeners
- * - Offline-first resilient fallback
+ * Centralized Database & Storage Service for Esfahan Chalak Performance System
+ * Fully compatible with:
+ * - Cloudflare Pages (Free tier static SPA & KV)
+ * - Local & Containerized Node/Express Server
+ * - Offline-first browser storage (resilient & persistent)
  */
 
 import { Criterion, JobProfile, Employee, Evaluation, OKRGoal, OneOnOneMeeting, PraiseKudos } from '../types';
 import { SEED_CRITERIA, SEED_PROFILES, SEED_EMPLOYEES, SEED_EVALUATIONS } from '../seedData';
 import { INITIAL_OKRS, INITIAL_ONE_ON_ONES, INITIAL_KUDOS } from '../data/latticeKickidlerSeed';
+import { CLOUD_SYNC_KEYS, CloudState, isCloudSyncKey } from '../../cloudflare/syncState';
 
-export const STORAGE_KEYS = {
+const STORAGE_KEYS = {
   EMPLOYEES: 'pe_employees',
   CRITERIA: 'pe_criteria',
   PROFILES: 'pe_profiles',
   EVALUATIONS: 'pe_evaluations',
   ARCHIVED_EVALUATIONS: 'pe_archived_evaluations',
   THEME: 'pe_theme',
-  USER_PASSWORDS: 'pe_user_passwords',
-  ADMIN_PASSWORD: 'pe_admin_password',
-  ADMIN_PASSWORD_UPDATED_AT: 'pe_admin_password_updated_at',
-  ROLE_PERMISSIONS: 'pe_role_permissions',
-  USER_CUSTOM_PERMISSIONS: 'pe_user_custom_permissions',
-  ROUTE_RULES: 'pe_route_rules',
-  MANUAL_ACCESS_POLICY: 'pe_manual_access_policy',
-  LOCKED_USERS: 'pe_locked_users',
-  SYSTEM_LOGS: 'pe_system_logs',
   ACTIVE_PERIOD: 'pe_active_period',
   BACKUP_TIMESTAMP: 'pe_last_backup_ts',
   OKRS: 'pe_lattice_okrs',
   ONE_ON_ONES: 'pe_lattice_one_on_ones',
   KUDOS: 'pe_lattice_kudos',
-  WORKSHOP_TARGETS: 'pe_workshop_targets',
-  KICKIDLER_LIVE: 'pe_kickidler_live',
-  KICKIDLER_RECORDS: 'pe_kickidler_records',
-  KICKIDLER_VIOLATIONS: 'pe_kickidler_violations',
-  APP_VERSION: 'pe_app_version',
-  LAST_SYNC_TS: 'pe_last_sync_timestamp'
+  WORKSHOP_TARGETS: 'pe_workshop_targets'
 } as const;
 
-export const CURRENT_ACTIVE_PERIOD = 'دوره بهار ۱۴۰۳';
-
-export interface SyncStatus {
-  isConnected: boolean;
-  isSyncing: boolean;
-  lastSyncTime: Date | null;
-  version: number;
-  hasCloudKV: boolean;
-}
+export const CURRENT_ACTIVE_PERIOD = 'بهار ۱۴۰۵';
 
 class AppDatabase {
   private syncTimeout: any = null;
-  private pollInterval: any = null;
-  private isCloudAvailable: boolean = true;
-  private isInitialized: boolean = false;
-  private hasCloudKV: boolean = true;
-  private isSyncing: boolean = false;
-  private localVersion: number = 0;
-  private lastSyncTime: Date | null = null;
   private listeners: Set<(key: string, data: any) => void> = new Set();
-  private syncStatusListeners: Set<(status: SyncStatus) => void> = new Set();
-
-  constructor() {
-    this.localVersion = Number(localStorage.getItem(STORAGE_KEYS.APP_VERSION)) || 0;
-    const lastSync = localStorage.getItem(STORAGE_KEYS.LAST_SYNC_TS);
-    if (lastSync) this.lastSyncTime = new Date(lastSync);
-
-    // Setup window focus and visibility change triggers
-    if (typeof window !== 'undefined') {
-      window.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          this.checkServerForUpdates().catch(() => {});
-        }
-      });
-      window.addEventListener('focus', () => {
-        this.checkServerForUpdates().catch(() => {});
-      });
-    }
-  }
 
   /**
-   * Subscribe to real-time database mutations
+   * Subscribe to real-time database state mutations
    */
   public subscribe(listener: (key: string, data: any) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
-  }
-
-  /**
-   * Subscribe to real-time Cloudflare Sync status
-   */
-  public subscribeSyncStatus(listener: (status: SyncStatus) => void): () => void {
-    this.syncStatusListeners.add(listener);
-    listener(this.getSyncStatus());
-    return () => this.syncStatusListeners.delete(listener);
-  }
-
-  public isReady(): boolean {
-    return this.isInitialized;
-  }
-
-  public getSyncStatus(): SyncStatus {
-    return {
-      isConnected: this.isCloudAvailable,
-      isSyncing: this.isSyncing,
-      lastSyncTime: this.lastSyncTime,
-      version: this.localVersion,
-      hasCloudKV: this.hasCloudKV
-    };
-  }
-
-  private notifySyncStatus(): void {
-    const status = this.getSyncStatus();
-    this.syncStatusListeners.forEach(fn => {
-      try { fn(status); } catch (e) { console.error('Error in sync status listener:', e); }
-    });
   }
 
   public notifyChange(key: string, data: any): void {
@@ -146,9 +67,16 @@ class AppDatabase {
   // Safe JSON setter with synchronous notification
   private setItem<T>(key: string, value: T): void {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      const stringVal = JSON.stringify(value);
+      const currentVal = localStorage.getItem(key);
+      if (currentVal === stringVal) return; // Prevent unnecessary cycles
+
+      localStorage.setItem(key, stringVal);
       this.notifyChange(key, value);
-      this.triggerCloudSyncDebounced();
+      if (this.cloudSyncEnabled && isCloudSyncKey(key)) {
+        this.dirtyKeys.add(key);
+        this.triggerCloudSyncDebounced();
+      }
     } catch (e) {
       console.error(`Error saving ${key} to storage:`, e);
     }
@@ -158,9 +86,7 @@ class AppDatabase {
   public getEmployees(): Employee[] {
     const data = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
     if (!data || data.length === 0) {
-      if (this.isInitialized) {
-        this.setItem(STORAGE_KEYS.EMPLOYEES, SEED_EMPLOYEES);
-      }
+      this.setItem(STORAGE_KEYS.EMPLOYEES, SEED_EMPLOYEES);
       return SEED_EMPLOYEES;
     }
     return data;
@@ -219,13 +145,10 @@ class AppDatabase {
           profileId: matchedProfile.id,
           period: CURRENT_ACTIVE_PERIOD,
           status: 'draft',
-          stage: 'self_review',
-          currentAssigneeId: newEmp.id,
-          currentAssigneeName: newEmp.name,
-          currentAssigneeRole: newEmp.role,
           scores: initialScores,
           created: Date.now()
         };
+
         this.saveEvaluations([...evals, createdEval]);
       }
     } catch (err) {
@@ -246,6 +169,7 @@ class AppDatabase {
       code: empData.code.trim().toUpperCase(),
       username: empData.username.trim().toLowerCase()
     };
+
     employees[index] = updated;
     this.saveEmployees(employees);
     return updated;
@@ -269,23 +193,18 @@ class AppDatabase {
     const filteredEvals = evals.filter(ev => ev.empId !== id);
     this.saveEvaluations(filteredEvals);
 
-    // Clean password mapping if exists
-    try {
-      const pwMap = this.getItem<Record<string, string>>(STORAGE_KEYS.USER_PASSWORDS, {});
-      if (pwMap[target.username.toLowerCase()]) {
-        delete pwMap[target.username.toLowerCase()];
-        localStorage.setItem(STORAGE_KEYS.USER_PASSWORDS, JSON.stringify(pwMap));
-      }
-    } catch {}
-
     return true;
   }
 
+  /**
+   * Batch delete employees with cascade removal of evaluations and safety check for main admin
+   */
   public deleteEmployeesBatch(ids: string[]): { success: boolean; deletedCount: number } {
     if (!ids || ids.length === 0) return { success: true, deletedCount: 0 };
     const idSet = new Set(ids);
     const employees = this.getEmployees();
     
+    // Filter out protected admins from deletion set
     const targetsToDelete = employees.filter(e => idSet.has(e.id) && !(e.role === 'admin' && (e.username === 'admin' || e.code === 'ADMIN-001')));
     if (targetsToDelete.length === 0) return { success: true, deletedCount: 0 };
 
@@ -298,17 +217,6 @@ class AppDatabase {
     const remainingEvals = evals.filter(ev => !validDeleteIds.has(ev.empId));
     this.saveEvaluations(remainingEvals);
 
-    // Clean password mapping
-    try {
-      const pwMap = this.getItem<Record<string, string>>(STORAGE_KEYS.USER_PASSWORDS, {});
-      targetsToDelete.forEach(t => {
-        if (pwMap[t.username.toLowerCase()]) {
-          delete pwMap[t.username.toLowerCase()];
-        }
-      });
-      localStorage.setItem(STORAGE_KEYS.USER_PASSWORDS, JSON.stringify(pwMap));
-    } catch {}
-
     return { success: true, deletedCount: targetsToDelete.length };
   }
 
@@ -316,9 +224,7 @@ class AppDatabase {
   public getCriteria(): Criterion[] {
     const data = this.getItem<Criterion[]>(STORAGE_KEYS.CRITERIA, []);
     if (!data || data.length === 0) {
-      if (this.isInitialized) {
-        this.setItem(STORAGE_KEYS.CRITERIA, SEED_CRITERIA);
-      }
+      this.setItem(STORAGE_KEYS.CRITERIA, SEED_CRITERIA);
       return SEED_CRITERIA;
     }
     return data;
@@ -354,23 +260,30 @@ class AppDatabase {
     return updated;
   }
 
+  /**
+   * Delete criterion with automatic CASCADE removal from profiles and evaluations.
+   * This guarantees that any parameter can be deleted cleanly without blocking errors!
+   */
   public deleteCriterion(id: string): { success: boolean; affectedProfiles: number; affectedEvaluations: number } {
     const criteria = this.getCriteria();
     const target = criteria.find(c => c.id === id);
     if (!target) return { success: false, affectedProfiles: 0, affectedEvaluations: 0 };
 
+    // 1. Remove from criteria bank
     const updatedCriteria = criteria.filter(c => c.id !== id);
     this.saveCriteria(updatedCriteria);
 
+    // 2. Cascade remove from all job profiles
     const profiles = this.getProfiles();
     let affectedProfiles = 0;
     const updatedProfiles = profiles.map(profile => {
       const hasItem = profile.items.some(item => item.cid === id);
       if (hasItem) {
         affectedProfiles++;
+        const filteredItems = profile.items.filter(item => item.cid !== id);
         return {
           ...profile,
-          items: profile.items.filter(item => item.cid !== id)
+          items: filteredItems
         };
       }
       return profile;
@@ -379,6 +292,7 @@ class AppDatabase {
       this.saveProfiles(updatedProfiles);
     }
 
+    // 3. Cascade remove from all evaluations
     const evals = this.getEvaluations();
     let affectedEvaluations = 0;
     const updatedEvals = evals.map(evaluation => {
@@ -399,6 +313,9 @@ class AppDatabase {
     return { success: true, affectedProfiles, affectedEvaluations };
   }
 
+  /**
+   * Batch delete multiple criteria with cascading removal from all profiles and evaluations
+   */
   public deleteCriteriaBatch(ids: string[]): { success: boolean; affectedProfiles: number; affectedEvaluations: number; deletedCount: number } {
     if (!ids || ids.length === 0) return { success: true, affectedProfiles: 0, affectedEvaluations: 0, deletedCount: 0 };
     const idSet = new Set(ids);
@@ -409,6 +326,7 @@ class AppDatabase {
 
     this.saveCriteria(remainingCriteria);
 
+    // Cascade remove from profiles
     const profiles = this.getProfiles();
     let affectedProfiles = 0;
     const updatedProfiles = profiles.map(profile => {
@@ -426,6 +344,7 @@ class AppDatabase {
       this.saveProfiles(updatedProfiles);
     }
 
+    // Cascade remove from evaluations
     const evals = this.getEvaluations();
     let affectedEvaluations = 0;
     const updatedEvals = evals.map(evaluation => {
@@ -450,9 +369,7 @@ class AppDatabase {
   public getProfiles(): JobProfile[] {
     const data = this.getItem<JobProfile[]>(STORAGE_KEYS.PROFILES, []);
     if (!data || data.length === 0) {
-      if (this.isInitialized) {
-        this.setItem(STORAGE_KEYS.PROFILES, SEED_PROFILES);
-      }
+      this.setItem(STORAGE_KEYS.PROFILES, SEED_PROFILES);
       return SEED_PROFILES;
     }
     return data;
@@ -491,8 +408,9 @@ class AppDatabase {
     const assignedEmployees = employees.filter(e => e.profileId === id);
     
     if (assignedEmployees.length > 0 && !force) {
-      return { success: false, error: `این پروفایل به ${assignedEmployees.length} کارمند تخصیص داده شده است.` };
+      return { success: false, error: `این رده شغلی به ${assignedEmployees.length} پرسنل منتسب است و ابتدا باید رده شغلی آن‌ها تغییر کند.` };
     }
+
     if (assignedEmployees.length > 0 && force) {
       const updatedEmployees = employees.map(e => e.profileId === id ? { ...e, profileId: '' } : e);
       this.saveEmployees(updatedEmployees);
@@ -506,6 +424,7 @@ class AppDatabase {
   public deleteProfilesBatch(ids: string[]): { success: boolean; deletedCount: number; affectedEmployees: number } {
     if (!ids || ids.length === 0) return { success: true, deletedCount: 0, affectedEmployees: 0 };
     const idSet = new Set(ids);
+
     const employees = this.getEmployees();
     let affectedEmployees = 0;
     const updatedEmployees = employees.map(e => {
@@ -518,10 +437,12 @@ class AppDatabase {
     if (affectedEmployees > 0) {
       this.saveEmployees(updatedEmployees);
     }
+
     const profiles = this.getProfiles();
     const remaining = profiles.filter(p => !idSet.has(p.id));
     const deletedCount = profiles.length - remaining.length;
     this.saveProfiles(remaining);
+
     return { success: true, deletedCount, affectedEmployees };
   }
 
@@ -529,9 +450,7 @@ class AppDatabase {
   public getEvaluations(): Evaluation[] {
     const data = this.getItem<Evaluation[]>(STORAGE_KEYS.EVALUATIONS, []);
     if (!data || data.length === 0) {
-      if (this.isInitialized) {
-        this.setItem(STORAGE_KEYS.EVALUATIONS, SEED_EVALUATIONS);
-      }
+      this.setItem(STORAGE_KEYS.EVALUATIONS, SEED_EVALUATIONS);
       return SEED_EVALUATIONS;
     }
     return data;
@@ -571,12 +490,11 @@ class AppDatabase {
 
   public updateEvaluation(id: string, updatedEv: Evaluation): Evaluation {
     const evals = this.getEvaluations();
-    // Match by ID OR by same employee + period to prevent parallel ghost draft evaluations
-    const index = evals.findIndex(e => e.id === id || (e.empId === updatedEv.empId && e.period === updatedEv.period));
+    const index = evals.findIndex(e => e.id === id);
     let nextList: Evaluation[];
     if (index >= 0) {
       nextList = [...evals];
-      nextList[index] = { ...nextList[index], ...updatedEv };
+      nextList[index] = updatedEv;
     } else {
       nextList = [...evals, updatedEv];
     }
@@ -588,9 +506,6 @@ class AppDatabase {
   public getOkrs(): OKRGoal[] {
     const data = this.getItem<OKRGoal[]>(STORAGE_KEYS.OKRS, []);
     if (!data || data.length === 0) {
-      if (this.isInitialized) {
-        this.setItem(STORAGE_KEYS.OKRS, INITIAL_OKRS);
-      }
       return INITIAL_OKRS;
     }
     return data;
@@ -598,6 +513,36 @@ class AppDatabase {
 
   public saveOkrs(okrs: OKRGoal[]): void {
     this.setItem(STORAGE_KEYS.OKRS, okrs);
+  }
+
+  public updateOkr(id: string, partial: Partial<OKRGoal>): OKRGoal | null {
+    const okrs = this.getOkrs();
+    const index = okrs.findIndex(o => o.id === id);
+    if (index === -1) return null;
+
+    const existing = okrs[index];
+    const updated: OKRGoal = {
+      ...existing,
+      ...partial
+    };
+
+    // Auto-recalculate progress if key results were supplied
+    if (updated.keyResults && updated.keyResults.length > 0) {
+      const sum = updated.keyResults.reduce((acc, kr) => {
+        const range = kr.targetValue - kr.startValue;
+        if (range === 0) return acc + 100;
+        return acc + Math.min(100, Math.max(0, ((kr.currentValue - kr.startValue) / range) * 100));
+      }, 0);
+      updated.progress = Math.round(sum / updated.keyResults.length);
+      if (updated.progress >= 100) updated.confidence = 'completed';
+      else if (updated.progress < 50) updated.confidence = 'behind';
+      else if (updated.progress < 75) updated.confidence = 'at_risk';
+      else updated.confidence = 'on_track';
+    }
+
+    okrs[index] = updated;
+    this.saveOkrs(okrs);
+    return updated;
   }
 
   public addOkr(okrData: Omit<OKRGoal, 'id'>): OKRGoal {
@@ -627,7 +572,14 @@ class AppDatabase {
     this.setItem(STORAGE_KEYS.WORKSHOP_TARGETS, targets);
   }
 
-  // --- BATCH CRITERIA MERGE ---
+  public getMiscData<T>(key: string, fallback: T): T {
+    return this.getItem<T>(key, fallback);
+  }
+  public saveMiscData<T>(key: string, value: T): void {
+    this.setItem(key, value);
+  }
+
+  // --- BATCH CRITERIA MERGE / MULTI-SOURCE REGISTER ---
   public saveCriteriaBatch(
     newCriteria: Array<Omit<Criterion, 'id'> & { id?: string }>,
     mode: 'merge' | 'replace' | 'skip_existing' = 'merge'
@@ -647,11 +599,14 @@ class AppDatabase {
     }
 
     const updatedList = [...currentCriteria];
+
     newCriteria.forEach((critCandidate, idx) => {
       const cleanCode = critCandidate.code.trim().toUpperCase();
       const existingIdx = updatedList.findIndex(c => c.code.trim().toUpperCase() === cleanCode);
+
       if (existingIdx >= 0) {
         if (mode === 'merge') {
+          // Merge fields, preserve existing ID
           const existing = updatedList[existingIdx];
           updatedList[existingIdx] = {
             ...existing,
@@ -661,7 +616,9 @@ class AppDatabase {
           };
           updatedCount++;
         }
+        // If mode === 'skip_existing', do nothing
       } else {
+        // Add new
         const newCrit: Criterion = {
           ...critCandidate,
           id: critCandidate.id || `crit-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 5)}`,
@@ -676,290 +633,251 @@ class AppDatabase {
     return { addedCount, updatedCount, totalCount: updatedList.length, criteria: updatedList };
   }
 
-  // --- REAL-TIME CLOUDFLARE SYNC ENGINE ---
+  // --- CLOUD & CLOUDFLARE SYNC (Safe & Non-Destructive) ---
+  private cloudSyncEnabled = false;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private isSyncing = false;
+  private dirtyKeys = new Set<string>();
+  private lastSyncedValues = new Map<string, string | null>();
+  private cloudRevision = 0;
+  
+  public async initializeCloudSync(): Promise<void> {
+    clearTimeout(this.syncTimeout);
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.cloudSyncEnabled = false;
+    this.dirtyKeys.clear();
+    this.lastSyncedValues.clear();
+    this.emitCloudStatus('syncing', 'در حال دریافت پایگاه داده ابری…');
 
-  /**
-   * Initializes real-time background sync:
-   * 1. Fetches cloud state from Cloudflare KV.
-   * 2. Starts periodic polling (every 3.5s) of /api/state?version_only=true.
-   */
-  public async initializeCloudSync(): Promise<boolean> {
-    try {
-      this.isSyncing = true;
-      this.notifySyncStatus();
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch('/api/state', {
-        signal: controller.signal,
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        this.isCloudAvailable = true;
-        const cloudState = await res.json();
-        
-        if (cloudState && typeof cloudState === 'object' && Object.keys(cloudState).length > 0) {
-          // Cloud has real state -> Apply it directly over local storage
-          this.applyCloudState(cloudState);
-        } else {
-          // Server state was completely empty -> Seed server with initial state
-          await this.pushStateToCloud();
-        }
-        return true;
-      } else {
-        this.isCloudAvailable = false;
-        return false;
+    const cloudHadState = await this.runSyncCycle('pull');
+    this.cloudSyncEnabled = true;
+    if (cloudHadState === false) {
+      for (const key of CLOUD_SYNC_KEYS) {
+        if (localStorage.getItem(key) !== null) this.dirtyKeys.add(key);
       }
-    } catch (e) {
-      console.warn('Initial cloud sync notice:', e);
-      this.isCloudAvailable = false;
-      return false;
-    } finally {
-      this.isInitialized = true;
-      this.isSyncing = false;
-      this.lastSyncTime = new Date();
-      localStorage.setItem(STORAGE_KEYS.LAST_SYNC_TS, this.lastSyncTime.toISOString());
-      this.notifySyncStatus();
-      this.startContinuousPolling();
+      await this.runSyncCycle('push');
+    }
+
+    this.pollTimer = setInterval(() => {
+      this.runSyncCycle('auto').catch(() => {});
+    }, 2500);
+  }
+
+  public stopCloudSync(): void {
+    this.cloudSyncEnabled = false;
+    clearTimeout(this.syncTimeout);
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = null;
+    this.dirtyKeys.clear();
+    this.emitCloudStatus('idle', 'همگام‌سازی متوقف است.');
+  }
+
+  private emitCloudStatus(
+    status: 'idle' | 'syncing' | 'synced' | 'error',
+    message: string,
+    extra: Record<string, unknown> = {}
+  ): void {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('pe_cloud_sync_status', {
+      detail: { status, message, revision: this.cloudRevision, ...extra }
+    }));
+  }
+
+  private getClientId(): string {
+    const key = 'chalak_cloud_client_id';
+    let id = sessionStorage.getItem(key);
+    if (!id) {
+      id = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      sessionStorage.setItem(key, id);
+    }
+    return id;
+  }
+
+  private detectDirectStorageChanges(): void {
+    if (!this.cloudSyncEnabled) return;
+    for (const key of CLOUD_SYNC_KEYS) {
+      const current = localStorage.getItem(key);
+      const previous = this.lastSyncedValues.get(key) ?? null;
+      if (current !== previous) this.dirtyKeys.add(key);
     }
   }
 
-  /**
-   * Starts non-blocking, lightweight background polling (every 3.5 seconds)
-   */
-  private startContinuousPolling(): void {
-    if (this.pollInterval) clearInterval(this.pollInterval);
-    this.pollInterval = setInterval(() => {
-      this.checkServerForUpdates().catch(() => {});
-    }, 3500);
-  }
-
-  /**
-   * Fast check for server version changes. If server has a newer version, pulls and applies it.
-   */
-  public async checkServerForUpdates(): Promise<boolean> {
-    if (this.isSyncing) return false;
+  private async runSyncCycle(mode: 'pull' | 'push' | 'auto', forceAll = false): Promise<boolean | null> {
+    if (this.isSyncing) return null;
+    this.isSyncing = true;
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
-      const res = await fetch('/api/state?version_only=true', {
-        signal: controller.signal,
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
-      });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        this.isCloudAvailable = false;
-        this.notifySyncStatus();
-        return false;
+      if (mode === 'auto') {
+        this.detectDirectStorageChanges();
+        return this.dirtyKeys.size > 0 ? await this.pushStateToCloudInternal(false) : await this.pullFromCloud();
       }
-
-      this.isCloudAvailable = true;
-      const meta = await res.json();
-      const serverVersion = Number(meta.version) || 0;
-
-      if (serverVersion > this.localVersion) {
-        console.log(`[Cloudflare Sync] New server version detected (${serverVersion} > ${this.localVersion}). Pulling state...`);
-        return await this.pullStateFromCloud();
-      }
-
-      return false;
-    } catch {
-      this.isCloudAvailable = false;
-      this.notifySyncStatus();
-      return false;
-    }
-  }
-
-  /**
-   * Pulls complete state from Cloudflare KV and updates local storage and listeners
-   */
-  public async pullStateFromCloud(): Promise<boolean> {
-    try {
-      this.isSyncing = true;
-      this.notifySyncStatus();
-
-      const res = await fetch('/api/state', {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
-      });
-      if (!res.ok) {
-        this.isCloudAvailable = false;
-        return false;
-      }
-
-      this.isCloudAvailable = true;
-      const cloudState = await res.json();
-      if (cloudState && typeof cloudState === 'object' && Object.keys(cloudState).length > 0) {
-        this.applyCloudState(cloudState);
-        this.lastSyncTime = new Date();
-        localStorage.setItem(STORAGE_KEYS.LAST_SYNC_TS, this.lastSyncTime.toISOString());
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error('Failed to pull state from Cloudflare:', e);
-      this.isCloudAvailable = false;
-      return false;
+      if (mode === 'push') return this.pushStateToCloudInternal(forceAll);
+      return this.pullFromCloud();
     } finally {
       this.isSyncing = false;
-      this.notifySyncStatus();
     }
   }
 
-  /**
-   * Applies state received from server to local storage and alerts components
-   */
-  private applyCloudState(cloudState: Record<string, any>): void {
-    let hasChanges = false;
-
-    // Keys that should be synced across all users and devices
-    const syncKeys = [
-      STORAGE_KEYS.EMPLOYEES,
-      STORAGE_KEYS.CRITERIA,
-      STORAGE_KEYS.PROFILES,
-      STORAGE_KEYS.EVALUATIONS,
-      STORAGE_KEYS.ARCHIVED_EVALUATIONS,
-      STORAGE_KEYS.OKRS,
-      STORAGE_KEYS.ONE_ON_ONES,
-      STORAGE_KEYS.KUDOS,
-      STORAGE_KEYS.WORKSHOP_TARGETS,
-      STORAGE_KEYS.USER_PASSWORDS,
-      STORAGE_KEYS.ADMIN_PASSWORD,
-      STORAGE_KEYS.ADMIN_PASSWORD_UPDATED_AT,
-      STORAGE_KEYS.ROLE_PERMISSIONS,
-      STORAGE_KEYS.USER_CUSTOM_PERMISSIONS,
-      STORAGE_KEYS.ROUTE_RULES,
-      STORAGE_KEYS.MANUAL_ACCESS_POLICY,
-      STORAGE_KEYS.LOCKED_USERS,
-      STORAGE_KEYS.SYSTEM_LOGS,
-      STORAGE_KEYS.KICKIDLER_LIVE,
-      STORAGE_KEYS.KICKIDLER_RECORDS,
-      STORAGE_KEYS.KICKIDLER_VIOLATIONS
-    ];
-
-    for (const key of syncKeys) {
-      if (cloudState[key] !== undefined) {
-        const currentLocalRaw = localStorage.getItem(key);
-        const incomingCloudRaw = typeof cloudState[key] === 'string' 
-          ? cloudState[key] 
-          : JSON.stringify(cloudState[key]);
-
-        if (currentLocalRaw !== incomingCloudRaw) {
-          localStorage.setItem(key, incomingCloudRaw);
-          const parsed = typeof cloudState[key] === 'string' 
-            ? JSON.parse(cloudState[key]) 
-            : cloudState[key];
-          this.notifyChange(key, parsed);
-          hasChanges = true;
+  private applyRemoteState(remoteState: CloudState): void {
+    let changed = false;
+    for (const key of CLOUD_SYNC_KEYS) {
+      if (this.dirtyKeys.has(key)) continue;
+      const hasRemoteValue = Object.prototype.hasOwnProperty.call(remoteState, key);
+      const nextRaw = hasRemoteValue ? JSON.stringify(remoteState[key]) : null;
+      const localRaw = localStorage.getItem(key);
+      if (nextRaw === null) {
+        if (this.lastSyncedValues.has(key) && localRaw !== null) {
+          localStorage.removeItem(key);
+          this.notifyChange(key, null);
+          changed = true;
         }
+      } else if (localRaw !== nextRaw) {
+        localStorage.setItem(key, nextRaw);
+        this.notifyChange(key, remoteState[key]);
+        changed = true;
       }
+      this.lastSyncedValues.set(key, nextRaw);
     }
+    if (changed) window.dispatchEvent(new CustomEvent('pe_cloud_data_received'));
+  }
 
-    if (cloudState._version) {
-      this.localVersion = Number(cloudState._version);
-      localStorage.setItem(STORAGE_KEYS.APP_VERSION, String(this.localVersion));
-    }
+  private async pullFromCloud(): Promise<boolean | null> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
-    if (hasChanges && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('pe_cloud_data_synced', { 
-        detail: { version: this.localVersion, timestamp: new Date() } 
-      }));
+      const res = await fetch('/api/state', { signal: controller.signal, credentials: 'same-origin' });
+      clearTimeout(timeoutId);
+
+      const contentType = res.headers.get('Content-Type') || '';
+      if (!contentType.includes('application/json')) {
+        this.emitCloudStatus('error', 'API فضای ابری در این اجرا فعال نیست؛ داده فقط محلی ذخیره می‌شود.');
+        return null;
+      }
+      const result = contentType.includes('application/json')
+        ? await res.json() as { state?: CloudState; revision?: number; updatedAt?: string; error?: string }
+        : {};
+      if (!res.ok) {
+        if (res.status === 401) window.dispatchEvent(new Event('pe_auth_expired'));
+        this.emitCloudStatus('error', result.error || `خطای دریافت داده ابری (${res.status})`);
+        return null;
+      }
+
+      const cloudState = result.state && typeof result.state === 'object' ? result.state : {};
+      this.cloudRevision = Number.isInteger(result.revision) ? Number(result.revision) : this.cloudRevision;
+      if (Object.keys(cloudState).length === 0 && this.cloudRevision === 0) return false;
+      this.applyRemoteState(cloudState);
+      this.emitCloudStatus('synced', 'داده‌ها با فضای ابری همگام هستند.', {
+        lastSyncedAt: result.updatedAt || new Date().toISOString()
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof DOMException && error.name === 'AbortError'
+        ? 'پاسخ فضای ابری بیش از حد طول کشید.'
+        : 'ارتباط با پایگاه داده ابری برقرار نشد.';
+      this.emitCloudStatus('error', message);
+      return null;
     }
   }
 
   private triggerCloudSyncDebounced(): void {
-    if (!this.isInitialized) {
-      // Guard: Never auto-push local seed data before server state is retrieved
-      return;
-    }
+    if (!this.cloudSyncEnabled) return;
     clearTimeout(this.syncTimeout);
     this.syncTimeout = setTimeout(() => {
-      this.pushStateToCloud().catch(() => {});
-    }, 500);
+      this.runSyncCycle('auto').catch(() => {});
+    }, 700);
   }
 
-  public syncToCloudNow(): Promise<boolean> {
+  public async syncToCloudNow(): Promise<boolean> {
     clearTimeout(this.syncTimeout);
-    return this.pushStateToCloud();
+    if (!this.cloudSyncEnabled) {
+      this.emitCloudStatus('error', 'ابتدا باید با حساب معتبر وارد سامانه شوید.');
+      return false;
+    }
+    return (await this.runSyncCycle('auto')) === true;
   }
 
-  public async forceSyncNow(): Promise<boolean> {
-    await this.checkServerForUpdates();
-    return await this.pushStateToCloud();
-  }
-
-  /**
-   * Pushes full organizational state to Cloudflare KV
-   */
   public async pushStateToCloud(): Promise<boolean> {
+    if (!this.cloudSyncEnabled) return false;
+    return (await this.runSyncCycle('push')) === true;
+  }
+
+  private async pushStateToCloudInternal(forceAll: boolean): Promise<boolean> {
     try {
-      this.isSyncing = true;
-      this.notifySyncStatus();
+      this.detectDirectStorageChanges();
+      if (forceAll) {
+        for (const key of CLOUD_SYNC_KEYS) {
+          if (localStorage.getItem(key) !== null) this.dirtyKeys.add(key);
+        }
+      }
 
-      const newVersion = Date.now();
-      const payload: Record<string, any> = {
-        _version: newVersion,
-        _updatedAt: new Date().toISOString(),
-        [STORAGE_KEYS.EMPLOYEES]: this.getEmployees(),
-        [STORAGE_KEYS.CRITERIA]: this.getCriteria(),
-        [STORAGE_KEYS.PROFILES]: this.getProfiles(),
-        [STORAGE_KEYS.EVALUATIONS]: this.getEvaluations(),
-        [STORAGE_KEYS.ARCHIVED_EVALUATIONS]: this.getArchivedEvaluations(),
-        [STORAGE_KEYS.OKRS]: this.getOkrs(),
-        [STORAGE_KEYS.ONE_ON_ONES]: this.getItem(STORAGE_KEYS.ONE_ON_ONES, INITIAL_ONE_ON_ONES),
-        [STORAGE_KEYS.KUDOS]: this.getItem(STORAGE_KEYS.KUDOS, INITIAL_KUDOS),
-        [STORAGE_KEYS.WORKSHOP_TARGETS]: this.getWorkshopTargets(),
-        [STORAGE_KEYS.USER_PASSWORDS]: this.getItem(STORAGE_KEYS.USER_PASSWORDS, {}),
-        [STORAGE_KEYS.ADMIN_PASSWORD]: localStorage.getItem(STORAGE_KEYS.ADMIN_PASSWORD) || 'admin',
-        [STORAGE_KEYS.ADMIN_PASSWORD_UPDATED_AT]: localStorage.getItem(STORAGE_KEYS.ADMIN_PASSWORD_UPDATED_AT) || '',
-        [STORAGE_KEYS.ROLE_PERMISSIONS]: this.getItem(STORAGE_KEYS.ROLE_PERMISSIONS, []),
-        [STORAGE_KEYS.USER_CUSTOM_PERMISSIONS]: this.getItem(STORAGE_KEYS.USER_CUSTOM_PERMISSIONS, {}),
-        [STORAGE_KEYS.ROUTE_RULES]: this.getItem(STORAGE_KEYS.ROUTE_RULES, []),
-        [STORAGE_KEYS.MANUAL_ACCESS_POLICY]: this.getItem(STORAGE_KEYS.MANUAL_ACCESS_POLICY, {}),
-        [STORAGE_KEYS.LOCKED_USERS]: this.getItem(STORAGE_KEYS.LOCKED_USERS, []),
-        [STORAGE_KEYS.SYSTEM_LOGS]: this.getItem(STORAGE_KEYS.SYSTEM_LOGS, []),
-        [STORAGE_KEYS.KICKIDLER_LIVE]: this.getItem(STORAGE_KEYS.KICKIDLER_LIVE, []),
-        [STORAGE_KEYS.KICKIDLER_RECORDS]: this.getItem(STORAGE_KEYS.KICKIDLER_RECORDS, []),
-        [STORAGE_KEYS.KICKIDLER_VIOLATIONS]: this.getItem(STORAGE_KEYS.KICKIDLER_VIOLATIONS, [])
-      };
+      const keysToSend = Array.from(this.dirtyKeys);
+      if (keysToSend.length === 0) {
+        this.emitCloudStatus('synced', 'تغییری برای ارسال وجود ندارد.', { lastSyncedAt: new Date().toISOString() });
+        return true;
+      }
 
+      const changes: CloudState = {};
+      const sentRaw = new Map<string, string | null>();
+      for (const key of keysToSend) {
+        const raw = localStorage.getItem(key);
+        sentRaw.set(key, raw);
+        if (raw === null) changes[key] = null;
+        else {
+          try { changes[key] = JSON.parse(raw); }
+          catch { changes[key] = raw; }
+        }
+      }
+
+      this.emitCloudStatus('syncing', `در حال ارسال ${keysToSend.length} تغییر به فضای ابری…`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15_000);
       const res = await fetch('/api/state', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        signal: controller.signal,
+        body: JSON.stringify({
+          state: changes,
+          baseRevision: this.cloudRevision,
+          clientId: this.getClientId(),
+        })
       });
-
-      if (res.ok) {
-        this.isCloudAvailable = true;
-        this.localVersion = newVersion;
-        this.lastSyncTime = new Date();
-        localStorage.setItem(STORAGE_KEYS.APP_VERSION, String(this.localVersion));
-        localStorage.setItem(STORAGE_KEYS.LAST_SYNC_TS, this.lastSyncTime.toISOString());
-        return true;
-      } else {
-        this.isCloudAvailable = false;
+      clearTimeout(timeoutId);
+      const contentType = res.headers.get('Content-Type') || '';
+      if (!contentType.includes('application/json')) {
+        this.emitCloudStatus('error', 'API فضای ابری در این اجرا فعال نیست؛ ذخیره فقط محلی انجام شد.');
         return false;
       }
-    } catch {
-      this.isCloudAvailable = false;
+      const result = contentType.includes('application/json')
+        ? await res.json() as { state?: CloudState; revision?: number; updatedAt?: string; error?: string }
+        : {};
+      if (!res.ok) {
+        if (res.status === 401) window.dispatchEvent(new Event('pe_auth_expired'));
+        this.emitCloudStatus('error', result.error || `ذخیره ابری ناموفق بود (${res.status}).`);
+        return false;
+      }
+
+      for (const [key, raw] of sentRaw) {
+        if (localStorage.getItem(key) === raw) {
+          this.dirtyKeys.delete(key);
+          this.lastSyncedValues.set(key, raw);
+        }
+      }
+      this.cloudRevision = Number.isInteger(result.revision) ? Number(result.revision) : this.cloudRevision + 1;
+      if (result.state && typeof result.state === 'object') this.applyRemoteState(result.state);
+      this.emitCloudStatus('synced', 'همه تغییرات در پایگاه داده ابری ذخیره شد.', {
+        lastSyncedAt: result.updatedAt || new Date().toISOString()
+      });
+      if (this.dirtyKeys.size > 0) this.triggerCloudSyncDebounced();
+      return true;
+    } catch (error) {
+      const message = error instanceof DOMException && error.name === 'AbortError'
+        ? 'ذخیره ابری به‌دلیل پایان زمان انتظار انجام نشد.'
+        : 'ذخیره ابری به‌دلیل خطای شبکه انجام نشد.';
+      this.emitCloudStatus('error', message);
       return false;
-    } finally {
-      this.isSyncing = false;
-      this.notifySyncStatus();
     }
   }
 
@@ -967,19 +885,15 @@ class AppDatabase {
   public exportBackupJSON(): string {
     const backupData = {
       meta: {
-        app: 'سامانه مدیریت عملکرد و مربیگری اصفهان چالاک',
-        version: '4.1.0-Cloudflare-Enterprise',
+        app: 'اصفهان چالاک - سامانه ارزیابی عملکرد',
+        version: '4.0.0-Cloudflare',
         exportedAt: new Date().toISOString()
       },
       employees: this.getEmployees(),
       criteria: this.getCriteria(),
       profiles: this.getProfiles(),
       evaluations: this.getEvaluations(),
-      archivedEvaluations: this.getArchivedEvaluations(),
-      okrs: this.getOkrs(),
-      oneOnOnes: this.getItem(STORAGE_KEYS.ONE_ON_ONES, INITIAL_ONE_ON_ONES),
-      kudos: this.getItem(STORAGE_KEYS.KUDOS, INITIAL_KUDOS),
-      workshopTargets: this.getWorkshopTargets()
+      archivedEvaluations: this.getArchivedEvaluations()
     };
     return JSON.stringify(backupData, null, 2);
   }
@@ -988,19 +902,18 @@ class AppDatabase {
     try {
       const data = JSON.parse(jsonStr);
       if (!data || typeof data !== 'object') {
-        return { success: false, message: 'ساختار فایل معتبر نیست.' };
+        return { success: false, message: 'فایل پشتیبان معتبر نیست.' };
       }
+
       if (Array.isArray(data.employees)) this.saveEmployees(data.employees);
       if (Array.isArray(data.criteria)) this.saveCriteria(data.criteria);
       if (Array.isArray(data.profiles)) this.saveProfiles(data.profiles);
       if (Array.isArray(data.evaluations)) this.saveEvaluations(data.evaluations);
       if (Array.isArray(data.archivedEvaluations)) this.saveArchivedEvaluations(data.archivedEvaluations);
-      if (Array.isArray(data.okrs)) this.saveOkrs(data.okrs);
-      if (Array.isArray(data.workshopTargets)) this.saveWorkshopTargets(data.workshopTargets);
-      this.syncToCloudNow().catch(() => {});
-      return { success: true, message: 'اطلاعات با موفقیت بازیابی و با سرور همگام شد.' };
+
+      return { success: true, message: 'اطلاعات پشتیبان با موفقیت بازیابی شد.' };
     } catch (e: any) {
-      return { success: false, message: `خطا در بازیابی: ${e?.message || 'فرمت نامعتبر'}` };
+      return { success: false, message: `خطا در بازخوانی فایل: ${e?.message || 'فرمت نامعتبر'}` };
     }
   }
 
@@ -1010,9 +923,6 @@ class AppDatabase {
     this.saveProfiles(SEED_PROFILES);
     this.saveEvaluations(SEED_EVALUATIONS);
     this.saveArchivedEvaluations([]);
-    this.saveOkrs(INITIAL_OKRS);
-    localStorage.removeItem(STORAGE_KEYS.USER_PASSWORDS);
-    this.syncToCloudNow().catch(() => {});
   }
 }
 

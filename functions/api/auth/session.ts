@@ -1,9 +1,7 @@
-export const onRequestGet: PagesFunction = async ({ request }) => {
-  return new Response(JSON.stringify({ authenticated: true }), {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store, no-cache, must-revalidate'
-    }
-  });
-};
+import { AuthSession, jsonResponse } from '../../../cloudflare/auth';
+
+interface Context { data: { session?: AuthSession } }
+
+export function onRequestGet({ data }: Context): Response {
+  return jsonResponse({ session: data.session || null });
+}
