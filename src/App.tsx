@@ -2,36 +2,35 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { lazy, Suspense, useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
+import Dashboard from './components/Dashboard';
+import CriteriaBank from './components/CriteriaBank';
+import JobProfiles from './components/JobProfiles';
+import Employees from './components/Employees';
+import Evaluations from './components/Evaluations';
+import Calibration from './components/Calibration';
+import Reports from './components/Reports';
 import Login from './components/Login';
+import Onboarding from './components/Onboarding';
+import MyEvaluation from './components/MyEvaluation';
+import ManagementCenter from './components/ManagementCenter';
+import WorkflowManager from './components/WorkflowManager';
 import SupervisorNotificationBell from './components/SupervisorNotificationBell';
-const Dashboard = lazy(() => import('./components/Dashboard'));
-const CriteriaBank = lazy(() => import('./components/CriteriaBank'));
-const JobProfiles = lazy(() => import('./components/JobProfiles'));
-const Employees = lazy(() => import('./components/Employees'));
-const Evaluations = lazy(() => import('./components/Evaluations'));
-const Calibration = lazy(() => import('./components/Calibration'));
-const Reports = lazy(() => import('./components/Reports'));
-const SupportTickets = lazy(() => import('./components/SupportTickets'));
-const Onboarding = lazy(() => import('./components/Onboarding'));
-const MyEvaluation = lazy(() => import('./components/MyEvaluation'));
-const ManagementCenter = lazy(() => import('./components/ManagementCenter'));
-const RewardCalculationCenter = lazy(() => import('./components/RewardCalculationCenter'));
-const WorkflowManager = lazy(() => import('./components/WorkflowManager'));
-const LatticePerformanceHub = lazy(() => import('./components/LatticePerformanceHub'));
-const KickidlerProductivityHub = lazy(() => import('./components/KickidlerProductivityHub'));
-const ComprehensiveManualModal = lazy(() => import('./components/ComprehensiveManualModal'));
-import { UploadCloud,  
-   Home,
-   BookOpen,
-   Sun,
-   Moon,
-   ShieldCheck,
-   Activity,
-   Sparkles,
-   Users,
-   Monitor,
+import LatticePerformanceHub from './components/LatticePerformanceHub';
+import KickidlerProductivityHub from './components/KickidlerProductivityHub';
+import ComprehensiveManualModal from './components/ComprehensiveManualModal';
+import { 
+  Home, 
+  BookOpen, 
+  Sun, 
+  Moon, 
+  ShieldCheck, 
+  Activity, 
+  Sparkles, 
+  Users, 
+  Monitor,
   Eye,
   LogOut,
   Menu,
@@ -39,6 +38,7 @@ import { UploadCloud,
   Printer,
   RotateCcw,
   CheckCircle2,
+  Lock,
   LockKeyhole,
   Scale,
   ClipboardCheck,
@@ -46,17 +46,18 @@ import { UploadCloud,
   Save,
   HelpCircle,
   Bell,
-  BellOff
+  BellOff,
+  RefreshCw,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
-import {  Criterion, JobProfile, Employee, Evaluation } from './types';
-import {  SEED_CRITERIA, SEED_PROFILES, SEED_EMPLOYEES, SEED_EVALUATIONS } from './seedData';
-import {  browserNotifications } from './utils/browserNotifications';
-import {  db } from './utils/db';
-import { canAccessTab, defaultTabFor } from './utils/accessControl';
-import {  
+import { Criterion, JobProfile, Employee, Evaluation } from './types';
+import { browserNotifications } from './utils/browserNotifications';
+import { db, SyncStatus } from './utils/db';
+import { 
   validateEmployeeInput, 
   validateCriterionInput, 
-  validateJobProfileInput, 
+  validateJobProfileInput,
   clearLegacyAdminSessions 
 } from './utils/validation';
 
@@ -67,6 +68,45 @@ export default function App() {
   const [saveIndicator, setSaveIndicator] = useState(false);
   const [activeTourStep, setActiveTourStep] = useState<number | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [cloudSyncToast, setCloudSyncToast] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState<boolean>(false);
+
+  // Cloudflare live sync status state
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => db.getSyncStatus());
+
+  useEffect(() => {
+    let isMounted = true;
+    db.initializeCloudSync().then(() => {
+      if (isMounted) {
+        setCriteria(db.getCriteria());
+        setProfiles(db.getProfiles());
+        setEmployees(db.getEmployees());
+        setEvaluations(db.getEvaluations());
+        setArchivedEvaluations(db.getArchivedEvaluations());
+        setIsHydrated(true);
+      }
+    }).catch(() => {
+      if (isMounted) setIsHydrated(true);
+    });
+
+    const unsub = db.subscribeSyncStatus((status) => {
+      setSyncStatus(status);
+    });
+    return () => {
+      isMounted = false;
+      unsub();
+    };
+  }, []);
+
+  // Listen for remote updates from other users
+  useEffect(() => {
+    const handleCloudDataSynced = (e: any) => {
+      setCloudSyncToast('تغییرات جدید از سایر کاربران دریافت و همگام شد.');
+      setTimeout(() => setCloudSyncToast(null), 4000);
+    };
+    window.addEventListener('pe_cloud_data_synced', handleCloudDataSynced);
+    return () => window.removeEventListener('pe_cloud_data_synced', handleCloudDataSynced);
+  }, []);
 
   const sanitizeUser = (user: Employee | null): Employee | null => {
     if (!user) return null;
@@ -85,7 +125,6 @@ export default function App() {
           const passUpdatedAt = localStorage.getItem('pe_admin_password_updated_at');
           if (sessionLoggedAt && passUpdatedAt) {
             if (new Date(passUpdatedAt).getTime() > new Date(sessionLoggedAt).getTime()) {
-              // Admin password changed after session was created -> invalidate session
               clearLegacyAdminSessions();
               return null;
             }
@@ -99,145 +138,9 @@ export default function App() {
     return null;
   });
 
-  // Verify the server-side HttpOnly session when Pages Functions are available,
-  // then start data synchronization only for an authenticated user.
-  useEffect(() => {
-    if (!currentUser) return;
-    let active = true;
-    const initializeAuthenticatedSession = async () => {
-      try {
-        const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
-        const isApiResponse = (response.headers.get('Content-Type') || '').includes('application/json');
-        if (isApiResponse && response.status === 401) {
-          if (active) {
-            clearLegacyAdminSessions();
-            setCurrentUser(null);
-          }
-          return;
-        }
-      } catch {
-        // Offline/Vite demo mode intentionally keeps the local session available.
-      }
-      if (active) await db.initializeCloudSync();
-    };
-    initializeAuthenticatedSession().catch(() => {});
-    return () => { active = false; };
-  }, [currentUser?.id]);
-
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => {
     return browserNotifications.getPermissionStatus();
   });
-
-  // Invalidate admin session if password updated in another tab
-  useEffect(() => {
-    const handleStorageUpdate = (e: StorageEvent) => {
-      if (currentUser?.role === 'admin' && e.key === 'pe_admin_password_updated_at') {
-        const sessionLoggedAt = sessionStorage.getItem('pe_admin_session_logged_at');
-        const passUpdatedAt = localStorage.getItem('pe_admin_password_updated_at');
-        if (sessionLoggedAt && passUpdatedAt) {
-          if (new Date(passUpdatedAt).getTime() > new Date(sessionLoggedAt).getTime()) {
-            clearLegacyAdminSessions();
-            setCurrentUser(null);
-            setCurrentTab('dashboard');
-          }
-        }
-      }
-    };
-
-    window.addEventListener('storage', handleStorageUpdate);
-    return () => window.removeEventListener('storage', handleStorageUpdate);
-  }, [currentUser]);
-
-  // Invalidate persistent admin session on admin password change event
-  useEffect(() => {
-    const handleAdminPasswordChangedEvent = () => {
-      if (currentUser?.role === 'admin') {
-        clearLegacyAdminSessions();
-        setCurrentUser(null);
-        setCurrentTab('dashboard');
-      }
-    };
-
-    window.addEventListener('pe_admin_password_changed', handleAdminPasswordChangedEvent);
-    return () => window.removeEventListener('pe_admin_password_changed', handleAdminPasswordChangedEvent);
-  }, [currentUser]);
-
-  const handleRequestNotification = async () => {
-    const granted = await browserNotifications.requestPermission();
-    setNotificationPermission(granted ? 'granted' : 'denied');
-    if (granted) {
-      browserNotifications.send({
-        title: 'اعلان‌های سامانه ارزیابی عملکرد فعال شد',
-        body: 'از این پس یادآوری‌های تاییدات و سررسید کارتابل‌ها را به صورت خودکار دریافت خواهید کرد.'
-      });
-    }
-  };
-
-  const getTourStepsForRole = (userRole: string) => {
-    if (userRole === 'employee') {
-      return [
-        { tab: 'my-evaluation', title: 'کارنامه و خودارزیابی من', desc: 'مشاهده شاخص‌های تخصصی شغل خود، امتیازدهی ۱ تا ۵ و ارسال نهایی به سرپرست' },
-        { tab: 'workflow', title: 'گردش کار و تاییدات', desc: 'رهگیری زنده پرونده در ۶ گام گردش کار و امکان ثبت اعتراض و درخواست بازنگری' },
-        { tab: 'onboarding', title: 'آموزش بدو ورود', desc: 'آشنایی کامل با آیین‌نامه ارزیابی عملکرد و پاسخ به آزمون سنجش صلاحیت' }
-      ];
-    } else if (userRole === 'supervisor') {
-      return [
-        { tab: 'dashboard', title: 'داشبورد ارزیابی و هدف‌گذاری', desc: 'پایش روند رشد عملکرد پرسنل کارگاه و ثبت اهداف بهبود فردی' },
-        { tab: 'workflow', title: 'کارتابل وظایف و گردش کار', desc: 'مشاهده سریع پرونده‌های در انتظار ارزیابی سرپرست و ارسال به کالیبراسیون' },
-        { tab: 'evaluations', title: 'فرم‌های ارزیابی و مربی‌گری هوشمند', desc: 'ثبت نمرات شاخص‌ها با مستندات الزامی و دریافت پیشنهادات تحلیلی AI' },
-        { tab: 'employees', title: 'لیست پرسنل و کنترل وضعیت', desc: 'بررسی وضعیت تکمیل ارزیابی زیرمجموعه و شروع سریع ارزیابی دوره‌ای' },
-        { tab: 'reports', title: 'تحلیل‌ها و ماتریس ۹-Box', desc: 'مشاهده نمودار توزیع نمرات و پراکندگی پرسنل بر حسب شایستگی' },
-        { tab: 'onboarding', title: 'آموزش و آزمون ارزیاب', desc: 'مرور ضوابط ضدسوگیری و اخذ نشان افتخار ارزیاب ذیصلاح' }
-      ];
-    } else {
-      // Admin / HR
-      return [
-        { tab: 'dashboard', title: 'داشبورد جامع مدیریت', desc: 'مشاهده آمار کلان سازمان، تحلیل‌های هوش مصنوعی و شاخص‌های کلیدی (KPIs)' },
-        { tab: 'workflow', title: 'مدیریت گردش کار و انتساب سازمانی', desc: 'پیکربندی مراحل سازمانی، قوانین تایید و انتساب گروهی سرپرستان' },
-        { tab: 'criteria', title: 'بانک مرکزی شاخص‌ها', desc: 'تعریف و فرمول‌بندی معیارهای کمی و کیفی بر اساس ابعاد پنج‌گانه شایستگی' },
-        { tab: 'profiles', title: 'پروفایل‌های شغلی و اوزان', desc: 'تنظیم اوزان شاخص‌ها (مجموع ۱۰۰٪) و درج اجباری شاخص ایمنی HSE' },
-        { tab: 'employees', title: 'مدیریت پرسنل و ساختار', desc: 'ویرایش پرسنل، انتساب مشاغل و تعیین سلسله‌مراتب ارزیابی' },
-        { tab: 'evaluations', title: 'فرم‌های ارزیابی سازمانی', desc: 'پایش جامع نمرات، آپلود اکسل و بررسی مستندات پرونده‌ها' },
-        { tab: 'calibration', title: 'پنل کالیبراسیون کمیته', desc: 'کنترل توزیع زنگوله‌ای نمرات و جلوگیری از تورم نمره‌ای' },
-        { tab: 'reports', title: 'گزارشات و ماتریس استعداد', desc: 'ماتریس ۹-Box، تحلیل روندها و خروجی رسمی کارنامه‌ها' },
-        { tab: 'settings', title: 'مرکز امنیت و پشتیبان‌گیری', desc: 'مدیریت کاربران، کلمات عبور، لاگ‌ها و بکاپ‌گیری ابری' }
-      ];
-    }
-  };
-
-  const currentTourSteps = currentUser ? getTourStepsForRole(currentUser.role) : [];
-
-  const handleStartTour = () => {
-    if (!currentUser) return;
-    const steps = getTourStepsForRole(currentUser.role);
-    if (steps.length > 0) {
-      setActiveTourStep(0);
-      setCurrentTab(steps[0].tab);
-    }
-  };
-
-  const handleNextTourStep = () => {
-    if (activeTourStep === null || !currentUser) return;
-    const steps = getTourStepsForRole(currentUser.role);
-    if (activeTourStep < steps.length - 1) {
-      const nextStep = activeTourStep + 1;
-      setActiveTourStep(nextStep);
-      setCurrentTab(steps[nextStep].tab);
-    } else {
-      setActiveTourStep(null);
-      localStorage.setItem('pe_tour_completed_' + currentUser.id + '_' + currentUser.role, 'true');
-    }
-  };
-
-  const handlePrevTourStep = () => {
-    if (activeTourStep === null || !currentUser) return;
-    const steps = getTourStepsForRole(currentUser.role);
-    if (activeTourStep > 0) {
-      const prevStep = activeTourStep - 1;
-      setActiveTourStep(prevStep);
-      setCurrentTab(steps[prevStep].tab);
-    }
-  };
 
   const [hasCertifiedBadge, setHasCertifiedBadge] = useState<boolean>(() => {
     return localStorage.getItem('pe_certified_badge') === 'true';
@@ -252,8 +155,6 @@ export default function App() {
     return (saved as 'dark' | 'light') || 'light';
   });
 
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; visible: boolean } | null>(null);
-
   const [criteria, setCriteria] = useState<Criterion[]>(() => db.getCriteria());
   const [profiles, setProfiles] = useState<JobProfile[]>(() => db.getProfiles());
   const [employees, setEmployees] = useState<Employee[]>(() => db.getEmployees());
@@ -266,9 +167,8 @@ export default function App() {
     return () => clearTimeout(t);
   }, []);
 
-  // Multi-tab and intra-app real-time synchronization
+  // Multi-tab and multi-device real-time synchronization listener
   useEffect(() => {
-    // 1. Intra-app reactive listener for instant updates across all forms
     const unsubscribe = db.subscribe((key, data) => {
       if (key === 'pe_criteria') setCriteria(data || db.getCriteria());
       else if (key === 'pe_profiles') setProfiles(data || db.getProfiles());
@@ -278,7 +178,6 @@ export default function App() {
       notifyDataSaved();
     });
 
-    // 2. Cross-tab synchronization
     const handleStorage = (e: StorageEvent) => {
       if (e.key === 'pe_criteria') setCriteria(db.getCriteria());
       else if (e.key === 'pe_profiles') setProfiles(db.getProfiles());
@@ -287,46 +186,11 @@ export default function App() {
       else if (e.key === 'pe_archived_evaluations') setArchivedEvaluations(db.getArchivedEvaluations());
     };
     window.addEventListener('storage', handleStorage);
-
     return () => {
       unsubscribe();
       window.removeEventListener('storage', handleStorage);
     };
   }, [notifyDataSaved]);
-
-  // Check and alert pending tasks if user is logged in
-  useEffect(() => {
-    if (!currentUser) return;
-
-    if (currentUser.role === 'supervisor') {
-      const pendingEvals = evaluations.filter(ev => {
-        const emp = employees.find(e => e.id === ev.empId);
-        return emp && (emp.supervisorId === currentUser.id || !emp.supervisorId) && (ev.status === 'draft' || ev.status === 'pending');
-      });
-      if (pendingEvals.length > 0 && notificationPermission === 'granted') {
-        const lastAlert = sessionStorage.getItem('pe_last_notif_alert');
-        if (!lastAlert) {
-          browserNotifications.sendWorkflowDeadlineAlert('supervisor', pendingEvals.length, 'پایان ماه جاری');
-          sessionStorage.setItem('pe_last_notif_alert', 'true');
-        }
-      }
-    } else if (currentUser.role === 'employee') {
-      const myEval = evaluations.find(ev => ev.empId === currentUser.id);
-      if ((!myEval || myEval.scores.every(s => s.self === 0)) && notificationPermission === 'granted') {
-        const lastAlert = sessionStorage.getItem('pe_last_notif_emp_alert');
-        if (!lastAlert) {
-          browserNotifications.sendWorkflowDeadlineAlert('employee', 1);
-          sessionStorage.setItem('pe_last_notif_emp_alert', 'true');
-        }
-      }
-    }
-  }, [currentUser, evaluations, employees, notificationPermission]);
-
-  // Session user storage is handled strictly inside sessionStorage on handleLogin / handleLogout
-
-  useEffect(() => {
-    localStorage.setItem('pe_certified_badge', hasCertifiedBadge ? 'true' : 'false');
-  }, [hasCertifiedBadge]);
 
   useEffect(() => {
     if (theme === 'light') {
@@ -336,13 +200,7 @@ export default function App() {
     }
   }, [theme]);
 
-  useEffect(() => {
-    const handleGlobalClick = () => setContextMenu(null);
-    window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
-  }, []);
-
-  const handleLogin = (emp: Employee) => {
+  const handleLogin = async (emp: Employee) => {
     const sanitized = sanitizeUser(emp);
     if (!sanitized) return;
     sessionStorage.setItem('pe_session_user', JSON.stringify(sanitized));
@@ -350,40 +208,28 @@ export default function App() {
       sessionStorage.setItem('pe_admin_session_logged_at', new Date().toISOString());
     }
     setCurrentUser(sanitized);
-    
-    // Check if onboarding or tour is needed for this role
-    const hasSeenRoleTour = localStorage.getItem('pe_tour_completed_' + sanitized.id + '_' + sanitized.role);
-    const hasOnboarded = localStorage.getItem('pe_onboarded_' + sanitized.id);
 
-    if (!hasOnboarded) {
-      setCurrentTab('onboarding');
-    } else if (!hasSeenRoleTour) {
-      if (sanitized.role === 'employee') {
-        setCurrentTab('my-evaluation');
-      } else {
-        setCurrentTab('dashboard');
-      }
-      setTimeout(() => {
-        handleStartTour();
-      }, 400);
+    // Force fresh state pull from cloud on login to ensure cross-browser consistency
+    try {
+      await db.pullStateFromCloud();
+      setCriteria(db.getCriteria());
+      setProfiles(db.getProfiles());
+      setEmployees(db.getEmployees());
+      setEvaluations(db.getEvaluations());
+      setArchivedEvaluations(db.getArchivedEvaluations());
+    } catch (e) {
+      console.warn('Post-login cloud refresh notice:', e);
+    }
+    
+    if (sanitized.role === 'employee') {
+      setCurrentTab('my-evaluation');
     } else {
-      if (sanitized.role === 'employee') {
-        setCurrentTab('my-evaluation');
-      } else {
-        setCurrentTab('dashboard');
-      }
+      setCurrentTab('dashboard');
     }
   };
 
   const handleLogout = () => {
-    fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-    }).catch(() => {});
     clearLegacyAdminSessions();
-    sessionStorage.removeItem('pe_last_notif_alert');
-    sessionStorage.removeItem('pe_last_notif_emp_alert');
     setCurrentUser(null);
     setCurrentTab('dashboard');
   };
@@ -394,43 +240,19 @@ export default function App() {
     setCurrentTab('dashboard');
   }, []);
 
+  const handleSwitchUser = (empId: string) => {
+    const emp = employees.find(e => e.id === empId);
+    if (emp) {
+      handleLogin(emp);
+    }
+  };
+
   const handleToggleTheme = () => {
     setTheme(prev => {
       const next = prev === 'dark' ? 'light' : 'dark';
       localStorage.setItem('pe_theme', next);
       return next;
     });
-  };
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    // DO NOT intercept right-clicks on inputs or textareas so native copy/paste works!
-    const target = e.target as HTMLElement;
-    if (target.tagName.toLowerCase() === 'input' || target.tagName.toLowerCase() === 'textarea' || target.isContentEditable) {
-      return; // allow native menu
-    }
-    e.preventDefault();
-    const menuWidth = 280;
-    const menuHeight = 440;
-    let x = e.clientX;
-    let y = e.clientY;
-    if (x + menuWidth > window.innerWidth) x = Math.max(10, window.innerWidth - menuWidth - 15);
-    if (y + menuHeight > window.innerHeight) y = Math.max(10, window.innerHeight - menuHeight - 15);
-    setContextMenu({ x, y, visible: true });
-  };
-
-  const handleQuickJSONBackup = () => {
-    const dataToExport = {
-      meta: { app: 'سیستم ارزیابی عملکرد', version: '3.5.0-Enterprise', exportDate: new Date().toISOString(), exportedBy: currentUser?.name || 'ناشناس' },
-      employees, profiles, criteria, evaluations
-    };
-    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(dataToExport, null, 2))}`;
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', jsonString);
-    downloadAnchor.setAttribute('download', `chalak_quick_backup_${Date.now()}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    setContextMenu(null);
   };
 
   const handleAddCriterion = (crit: Omit<Criterion, 'id'>): boolean => {
@@ -470,8 +292,6 @@ export default function App() {
       setProfiles(db.getProfiles());
       setEvaluations(db.getEvaluations());
       notifyDataSaved();
-    } else {
-      alert('خطا در حذف شاخص');
     }
   };
 
@@ -503,13 +323,6 @@ export default function App() {
       alert(res.error || 'خطا در حذف پروفایل شغلی.');
       return;
     }
-    setProfiles(db.getProfiles());
-    setEmployees(db.getEmployees());
-    notifyDataSaved();
-  };
-
-  const handleBulkDeleteProfiles = (ids: string[]) => {
-    const res = db.deleteProfilesBatch(ids);
     setProfiles(db.getProfiles());
     setEmployees(db.getEmployees());
     notifyDataSaved();
@@ -549,85 +362,13 @@ export default function App() {
     notifyDataSaved();
   };
 
-  const removeCloudCredential = async (username: string) => {
-    try {
-      const response = await fetch('/api/auth/password', {
-        method: 'DELETE',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
-      });
-      const isApiResponse = (response.headers.get('Content-Type') || '').includes('application/json');
-      return !isApiResponse && import.meta.env.DEV ? true : response.ok;
-    } catch {
-      return import.meta.env.DEV;
-    }
-  };
-
-  const handleDeleteEmployee = async (id: string) => {
-    const target = employees.find(e => e.id === id);
-    if (!target) return;
-    // Protect primary root admin account only
-    if (target.username === 'admin' && target.code === 'ADMIN-001') {
-      alert('حساب مدیر ارشد سیستم (ADMIN-001) محافظت‌شده بوده و قابل حذف نمی‌باشد.');
-      return;
-    }
-    if (!(await removeCloudCredential(target.username))) {
-      alert('حذف اطلاعات ورود کاربر از سرور ناموفق بود؛ عملیات حذف متوقف شد.');
-      return;
-    }
+  const handleDeleteEmployee = (id: string) => {
     const success = db.deleteEmployee(id);
     if (success) {
       setEmployees(db.getEmployees());
       setEvaluations(db.getEvaluations());
       notifyDataSaved();
     }
-  };
-
-  const handleBulkDeleteEmployees = async (ids: string[]) => {
-    if (!ids || ids.length === 0) return;
-    const targets = employees.filter(employee => ids.includes(employee.id) && employee.username !== 'admin');
-    const credentialsRemoved = await Promise.all(targets.map(employee => removeCloudCredential(employee.username)));
-    if (credentialsRemoved.some(success => !success)) {
-      alert('حذف بخشی از اطلاعات ورود از سرور ناموفق بود؛ عملیات گروهی متوقف شد.');
-      return;
-    }
-    const res = db.deleteEmployeesBatch(ids);
-    if (res.success) {
-      setEmployees(db.getEmployees());
-      setEvaluations(db.getEvaluations());
-      notifyDataSaved();
-    }
-  };
-
-  const handleBulkUpdateEmployees = (updatedList: Employee[]) => {
-    db.saveEmployees(updatedList);
-    setEmployees(db.getEmployees());
-    notifyDataSaved();
-  };
-
-  const handleBulkUpdateEvaluations = (updatedEvals: Evaluation[]) => {
-    db.saveEvaluations(updatedEvals);
-    setEvaluations(updatedEvals);
-    notifyDataSaved();
-  };
-
-  const handleSetProfiles = (updatedProfiles: JobProfile[]) => {
-    db.saveProfiles(updatedProfiles);
-    setProfiles(updatedProfiles);
-    notifyDataSaved();
-  };
-
-  const handleSetCriteria = (updatedCriteria: Criterion[]) => {
-    db.saveCriteria(updatedCriteria);
-    setCriteria(updatedCriteria);
-    notifyDataSaved();
-  };
-
-  const handleSetArchivedEvaluations = (updatedArchived: Evaluation[]) => {
-    db.saveArchivedEvaluations(updatedArchived);
-    setArchivedEvaluations(updatedArchived);
-    notifyDataSaved();
   };
 
   const handleAddEvaluation = (empId: string, period: string) => {
@@ -663,16 +404,6 @@ export default function App() {
     notifyDataSaved();
   };
 
-  const handleBatchAddCriteria = (
-    newOrUpdatedList: Array<Omit<Criterion, 'id'> & { id?: string }>,
-    mode: 'merge' | 'prefix_dept' | 'skip_existing' | 'replace' = 'merge'
-  ) => {
-    const batchMode = mode === 'replace' ? 'replace' : mode === 'skip_existing' ? 'skip_existing' : 'merge';
-    db.saveCriteriaBatch(newOrUpdatedList, batchMode);
-    setCriteria(db.getCriteria());
-    notifyDataSaved();
-  };
-
   const handleDeleteEvaluation = (id: string) => {
     const updated = evaluations.filter(e => e.id !== id);
     db.saveEvaluations(updated);
@@ -681,79 +412,33 @@ export default function App() {
     notifyDataSaved();
   };
 
-  const handleBulkDeleteCriteria = (ids: string[]) => {
-    const res = db.deleteCriteriaBatch(ids);
-    if (res.deletedCount > 0) {
-      setCriteria(db.getCriteria());
-      setProfiles(db.getProfiles());
-      setEvaluations(db.getEvaluations());
-      notifyDataSaved();
-    }
-  };
-
-  const handleBulkDeleteEvaluations = (ids: string[]) => {
-    const res = db.deleteEvaluationsBatch(ids);
-    if (res.deletedCount > 0) {
-      setEvaluations(db.getEvaluations());
-      if (activeEvalId && ids.includes(activeEvalId)) {
-        setActiveEvalId(null);
-      }
-      notifyDataSaved();
-    }
-  };
-
-  const handleStartEvaluationDirect = (empId: string) => {
-    const existing = evaluations.find(ev => ev.empId === empId && ev.period === 'بهار ۱۴۰۵');
-    if (existing) {
-      setActiveEvalId(existing.id);
-      setCurrentTab('evaluations');
-    } else {
-      handleAddEvaluation(empId, 'بهار ۱۴۰۵');
-    }
-  };
-
-  const handleSelectEvaluation = (id: string) => {
-    setActiveEvalId(id);
-    setCurrentTab('evaluations');
-  };
-
   const getTabTitle = (tab: string) => {
     switch (tab) {
-      case 'dashboard': return 'داشبورد مدیریت';
-      case 'workflow': return 'گردش کار و تاییدات';
-      case 'criteria': return 'بانک شاخص‌ها';
-      case 'profiles': return 'پروفایل‌های شغلی';
-      case 'employees': return 'مدیریت کارکنان';
-      case 'evaluations': return 'فرم‌های ارزیابی';
-      case 'calibration': return 'کالیبراسیون عملکرد';
-      case 'reports': return 'گزارشات سازمانی';
-      case 'rewards': return 'محاسبات ریالی و پاداش';
-      case 'lattice-hub': return 'مدیریت اهداف و استعدادها (Lattice)';
-      case 'kickidler-hub': return 'پایش بهره‌وری و زمان کار (Kickidler)';
-      case 'onboarding': return 'آموزش سیستم';
-      case 'my-evaluation': return 'ارزیابی من';
-      case 'settings': return 'تنظیمات امنیتی';
-      default: return 'سیستم مدیریت عملکرد';
+      case 'dashboard': return 'داشبورد جامع مدیریت عملکرد';
+      case 'workflow': return 'مدیریت فرآیند و گردش‌کار';
+      case 'criteria': return 'بانک شاخص‌های عملکرد (KPI)';
+      case 'profiles': return 'پروفایل‌های شغلی و اوزان';
+      case 'employees': return 'مدیریت پرسنل و دسترسی‌ها';
+      case 'evaluations': return 'ثبت و پایش ارزیابی‌ها';
+      case 'calibration': return 'کالیبراسیون و انطباق نمرات';
+      case 'reports': return 'گزارشات و ماتریس ۹ خانه';
+      case 'lattice-hub': return 'هاب اهداف و نتایج کلیدی (Lattice)';
+      case 'kickidler-hub': return 'پایش بهره‌وری و زمان مفید (Kickidler)';
+      case 'onboarding': return 'مرکز آشناسازی و آموزش';
+      case 'my-evaluation': return 'کارتابل ارزیابی من';
+      case 'settings': return 'مرکز مدیریت و امنیت';
+      default: return 'سامانه مدیریت عملکرد';
     }
   };
-
-  useEffect(() => {
-    if (currentUser && !canAccessTab(currentUser, currentTab)) {
-      setCurrentTab(defaultTabFor(currentUser));
-    }
-  }, [currentUser, currentTab]);
 
   if (!currentUser) {
     return <Login employees={employees} onLogin={handleLogin} theme={theme} />;
   }
 
-  if (!canAccessTab(currentUser, currentTab)) {
-    return <div className="min-h-screen grid place-items-center bg-slate-950 text-slate-400" dir="rtl">در حال انتقال به بخش مجاز…</div>;
-  }
-
   return (
-    <div onContextMenu={handleContextMenu} className={`flex flex-col md:flex-row h-screen overflow-hidden font-sans text-right transition-colors duration-300 relative ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir="rtl">
+    <div className={`flex flex-col md:flex-row h-screen overflow-hidden font-sans text-right transition-colors duration-300 relative ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir="rtl">
       
+      {/* Mobile Header */}
       <header className={`md:hidden flex items-center justify-between px-4 py-3 border-b z-30 shrink-0 ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
         <div className="flex items-center gap-2.5">
           <button type="button" onClick={() => setIsMobileMenuOpen(true)} className="p-2 rounded-xl bg-slate-800/20 text-teal-400 hover:bg-slate-800/40 transition-colors cursor-pointer" aria-label="منو">
@@ -762,16 +447,27 @@ export default function App() {
           <span className="text-xs font-black tracking-tight">{getTabTitle(currentTab)}</span>
         </div>
         <div className="flex items-center gap-2">
-          {saveIndicator && (
-            <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full animate-fade-in">
-              <CheckCircle2 className="w-3 h-3" /> ذخیره شد
-            </span>
-          )}
+          {/* Cloudflare Live Sync Pulse */}
+          <button
+            type="button"
+            onClick={() => db.forceSyncNow()}
+            className={`p-1.5 rounded-xl text-xs font-bold flex items-center gap-1 border ${
+              syncStatus.isSyncing 
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
+                : syncStatus.isConnected 
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+            }`}
+            title="وضعیت همگام‌سازی ابری با کلادفلر (برای بروزرسانی کلیک کنید)"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-amber-400' : 'text-emerald-400'}`} />
+          </button>
+
           <button 
             type="button" 
             onClick={() => setIsManualModalOpen(true)} 
             className="p-1.5 rounded-xl bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 transition-colors cursor-pointer"
-            title="کتابچه راهنما و دانلود PDF"
+            title="کتابچه راهنما"
           >
             <BookOpen className="w-4 h-4" />
           </button>
@@ -788,40 +484,78 @@ export default function App() {
         </div>
       </header>
 
+      {/* Cloudflare Remote Changes Toast Alert */}
+      {cloudSyncToast && (
+        <div className="fixed top-16 left-6 z-50 p-3.5 rounded-2xl bg-teal-600 text-white font-bold text-xs shadow-2xl flex items-center gap-2.5 animate-in slide-in-from-top-4 border border-teal-400">
+          <CheckCircle2 className="w-4 h-4 text-white" />
+          <span>{cloudSyncToast}</span>
+        </div>
+      )}
+
+      {/* Sidebar */}
       <Sidebar 
         currentTab={currentTab} 
-        onChangeTab={(tab) => { setCurrentTab(tab); if (tab !== 'evaluations') setActiveEvalId(null); }} 
-        currentUser={currentUser} onLogout={handleLogout} theme={theme} onToggleTheme={handleToggleTheme} 
-        hasCertifiedBadge={hasCertifiedBadge}
-        onStartTour={handleStartTour}
+        onChangeTab={(tab) => { setCurrentTab(tab); if (tab !== 'evaluations') setActiveEvalId(null); }}
+        currentUser={currentUser} 
+        onLogout={handleLogout} 
+        theme={theme} 
+        onToggleTheme={handleToggleTheme}
+        hasCertifiedBadge={hasCertifiedBadge} 
+        employees={employees} 
+        onSwitchUser={handleSwitchUser}
+        onStartTour={() => setCurrentTab('onboarding')}
         onOpenManual={() => setIsManualModalOpen(true)}
-        isMobileOpen={isMobileMenuOpen} onCloseMobile={() => setIsMobileMenuOpen(false)} 
+        isMobileOpen={isMobileMenuOpen} 
+        onCloseMobile={() => setIsMobileMenuOpen(false)}
       />
 
+      {/* Main Content Stage */}
       <main className={`flex-1 overflow-y-auto transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-950/60' : 'bg-slate-100/40'}`}>
-        {/* Desktop Sticky Header with Supervisor Overdue Notification Bell */}
+        {/* Desktop Header */}
         <div className={`hidden md:flex items-center justify-between px-6 py-2.5 border-b sticky top-0 z-20 backdrop-blur-md ${
           theme === 'dark' ? 'bg-slate-950/85 border-slate-800/80' : 'bg-white/85 border-slate-200/80 shadow-xs'
         }`}>
           <div className="flex items-center gap-3">
             <span className="text-xs font-black tracking-tight">{getTabTitle(currentTab)}</span>
-            <span className="text-[11px] text-slate-500 font-medium">| سامانه جامع مدیریت عملکرد و ارزیابی شایستگی‌های شغلی</span>
+            <span className="text-[11px] text-slate-500 font-medium">| شرکت اصفهان چالاک</span>
           </div>
+
           <div className="flex items-center gap-3">
+            {/* Real-time Cloudflare Status Indicator */}
+            <div 
+              onClick={() => db.forceSyncNow()}
+              className={`flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                syncStatus.isSyncing 
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  : syncStatus.isConnected
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+              }`}
+              title="برای همگام‌سازی فوری با کلادفلر کلیک کنید"
+            >
+              <span className={`w-2 h-2 rounded-full ${syncStatus.isSyncing ? 'bg-amber-400 animate-spin' : syncStatus.isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+              <span className="text-[11px]">
+                {syncStatus.isSyncing ? 'در حال همگام‌سازی...' : syncStatus.isConnected ? 'همگام با کلادفلر' : 'آفلاین (محلی)'}
+              </span>
+              <RefreshCw className={`w-3 h-3 ${syncStatus.isSyncing ? 'animate-spin' : ''}`} />
+            </div>
+
             {saveIndicator && (
               <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2.5 py-1 rounded-full animate-fade-in border border-emerald-500/20">
-                <CheckCircle2 className="w-3 h-3" /> ذخیره خودکار فعال
+                <CheckCircle2 className="w-3 h-3" /> ذخیره شد
               </span>
             )}
+
             <button
               type="button"
               onClick={() => setIsManualModalOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/20 text-xs font-bold transition-all cursor-pointer"
-              title="مشاهده و دانلود کتابچه راهنمای جامع به صورت PDF"
+              title="کتابچه راهنما"
             >
               <BookOpen className="w-3.5 h-3.5" />
-              <span>کتابچه راهنما (PDF)</span>
+              <span>کتابچه راهنما</span>
             </button>
+
             <SupervisorNotificationBell
               evaluations={evaluations}
               employees={employees}
@@ -829,11 +563,11 @@ export default function App() {
               onNavigate={setCurrentTab}
               theme={theme}
             />
+
             <button
               type="button"
               onClick={handleToggleTheme}
               className="p-1.5 rounded-xl bg-slate-800/20 text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
-              title="تغییر تم"
             >
               {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
             </button>
@@ -842,233 +576,182 @@ export default function App() {
 
         <div className="p-4 sm:p-6 md:p-8">
           <div className="max-w-7xl mx-auto space-y-6">
-          <Suspense fallback={<div className="p-8 text-center text-sm text-slate-400">در حال بارگذاری بخش…</div>}>
-          {currentTab === 'dashboard' && <Dashboard criteria={criteria} profiles={profiles} employees={employees} evaluations={evaluations} onNavigate={setCurrentTab} onSelectEvaluation={handleSelectEvaluation} currentUser={currentUser} hasCertifiedBadge={hasCertifiedBadge} theme={theme} />}
-          {currentTab === 'workflow' && (
-            <WorkflowManager 
-              currentUser={currentUser} 
-              evaluations={evaluations} 
-              employees={employees} 
-              profiles={profiles} 
-              criteria={criteria} 
-              onUpdateEvaluation={handleUpdateEvaluation} 
-              onBulkUpdateEvaluations={handleBulkUpdateEvaluations} 
-              onDeleteEvaluation={handleDeleteEvaluation}
-              onBulkDeleteEvaluations={handleBulkDeleteEvaluations}
-              onUpdateEmployees={handleBulkUpdateEmployees} 
-              onSelectEvaluation={handleSelectEvaluation} 
-              theme={theme} 
-            />
-          )}
-          {currentTab === 'criteria' && (
-            <CriteriaBank 
-              criteria={criteria} 
-              onAddCriterion={handleAddCriterion} 
-              onUpdateCriterion={handleUpdateCriterion} 
-              onDeleteCriterion={handleDeleteCriterion} 
-              onBulkDeleteCriteria={handleBulkDeleteCriteria}
-              onBatchAddCriteria={handleBatchAddCriteria}
-              employees={employees}
-              profiles={profiles}
-              evaluations={evaluations}
-              onUpdateEvaluations={handleBulkUpdateEvaluations}
-              theme={theme} 
-            />
-          )}
-          {currentTab === 'profiles' && (
-            <JobProfiles 
-              profiles={profiles} 
-              criteria={criteria} 
-              onAddProfile={handleAddProfile} 
-              onUpdateProfile={handleUpdateProfile} 
-              onDeleteProfile={handleDeleteProfile} 
-              onBulkDeleteProfiles={handleBulkDeleteProfiles}
-              onToggleLockProfile={handleToggleLockProfile} 
-              onAddCriterion={handleAddCriterion} 
-              theme={theme} 
-              currentUser={currentUser}
-            />
-          )}
-          {currentTab === 'employees' && <Employees employees={employees} profiles={profiles} evaluations={evaluations} onAddEmployee={handleAddEmployee} onUpdateEmployee={handleUpdateEmployee} onBulkUpdateEmployees={handleBulkUpdateEmployees} onDeleteEmployee={handleDeleteEmployee} onBulkDeleteEmployees={handleBulkDeleteEmployees} onStartEvaluation={handleStartEvaluationDirect} theme={theme} />}
-          {currentTab === 'evaluations' && <Evaluations evaluations={evaluations} employees={employees} profiles={profiles} criteria={criteria} onAddEvaluation={handleAddEvaluation} onUpdateEvaluation={handleUpdateEvaluation} onBulkUpdateEvaluations={handleBulkUpdateEvaluations} onDeleteEvaluation={handleDeleteEvaluation} onBulkDeleteEvaluations={handleBulkDeleteEvaluations} activeEvalId={activeEvalId} onSetActiveEval={setActiveEvalId} currentUser={currentUser} />}
-          {currentTab === 'calibration' && <Calibration evaluations={evaluations} employees={employees} profiles={profiles} onUpdateEvaluation={handleUpdateEvaluation} onSelectEvaluation={handleSelectEvaluation} />}
-          {currentTab === 'support' && <SupportTickets currentUser={currentUser} theme={theme} />}
-          {currentTab === 'reports' && (
-            <Reports 
-              evaluations={evaluations} 
-              employees={employees} 
-              profiles={profiles} 
-              criteria={criteria} 
-              onDeleteEvaluation={handleDeleteEvaluation}
-              onBulkDeleteEvaluations={handleBulkDeleteEvaluations}
-              onSelectEvaluation={handleSelectEvaluation}
-              onNavigate={setCurrentTab}
-              currentUser={currentUser}
-            />
-          )}
-          {currentTab === 'lattice-hub' && (
-            <LatticePerformanceHub 
-              currentUser={currentUser} 
-              employees={employees} 
-              theme={theme} 
-              onNavigate={setCurrentTab} 
-            />
-          )}
-          {currentTab === 'kickidler-hub' && (
-            <KickidlerProductivityHub 
-              currentUser={currentUser} 
-              employees={employees} 
-              theme={theme} 
-              onNavigate={setCurrentTab} 
-            />
-          )}
-          {currentTab === 'onboarding' && <Onboarding currentUser={currentUser} onComplete={() => { if (currentUser) localStorage.setItem('pe_onboarded_' + currentUser.id, 'true'); if (currentUser && currentUser.role === 'employee') setCurrentTab('my-evaluation'); else setCurrentTab('dashboard'); }} hasCertifiedBadge={hasCertifiedBadge} onGrantBadge={() => setHasCertifiedBadge(true)} theme={theme} />}
-          {currentTab === 'my-evaluation' && <MyEvaluation currentUser={currentUser} evaluations={evaluations} profiles={profiles} criteria={criteria} onUpdateEvaluation={handleUpdateEvaluation} onAddEvaluation={handleAddEvaluation} theme={theme} />}
-          {currentTab === 'rewards' && currentUser.role === 'admin' && <RewardCalculationCenter evaluations={evaluations} employees={employees} profiles={profiles} theme={theme} onBulkUpdateEvaluations={handleBulkUpdateEvaluations} />}
-          {currentTab === 'settings' && (
-            currentUser.role === 'admin' ? (
-              <ManagementCenter 
+            {currentTab === 'dashboard' && (
+              <Dashboard 
+                criteria={criteria} 
+                profiles={profiles} 
+                employees={employees} 
+                evaluations={evaluations} 
+                onNavigate={setCurrentTab} 
+                onSelectEvaluation={(id) => { setActiveEvalId(id); setCurrentTab('evaluations'); }} 
+                currentUser={currentUser} 
+                hasCertifiedBadge={hasCertifiedBadge} 
+                theme={theme} 
+              />
+            )}
+            {currentTab === 'workflow' && (
+              <WorkflowManager 
+                currentUser={currentUser} 
+                evaluations={evaluations} 
                 employees={employees} 
                 profiles={profiles} 
                 criteria={criteria} 
-                evaluations={evaluations} 
-                archivedEvaluations={archivedEvaluations}
-                onSetEmployees={handleBulkUpdateEmployees} 
-                onSetProfiles={handleSetProfiles} 
-                onSetCriteria={handleSetCriteria} 
-                onSetEvaluations={handleBulkUpdateEvaluations} 
-                onSetArchivedEvaluations={handleSetArchivedEvaluations}
-                currentUser={currentUser} 
+                onUpdateEvaluation={handleUpdateEvaluation} 
+                onBulkUpdateEvaluations={(evs) => { setEvaluations(evs); db.saveEvaluations(evs); }}
+                onSelectEvaluation={(id) => { setActiveEvalId(id); setCurrentTab('evaluations'); }}
+                onDeleteEvaluation={handleDeleteEvaluation}
                 theme={theme} 
-                onForceReauth={handleForceAdminReauth}
               />
-            ) : (
-              <div className="bg-rose-500/10 border border-rose-500/30 rounded-3xl p-8 text-center space-y-4 max-w-lg mx-auto mt-12 shadow-xl">
-                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
-                  <Lock className="w-6 h-6" />
+            )}
+            {currentTab === 'criteria' && (
+              <CriteriaBank 
+                criteria={criteria} 
+                onAddCriterion={handleAddCriterion} 
+                onUpdateCriterion={handleUpdateCriterion} 
+                onDeleteCriterion={handleDeleteCriterion} 
+                employees={employees} 
+                profiles={profiles} 
+                evaluations={evaluations} 
+                onUpdateEvaluations={setEvaluations} 
+                theme={theme} 
+              />
+            )}
+            {currentTab === 'profiles' && (
+              <JobProfiles 
+                profiles={profiles} 
+                criteria={criteria} 
+                onAddProfile={handleAddProfile} 
+                onUpdateProfile={handleUpdateProfile} 
+                onDeleteProfile={handleDeleteProfile} 
+                onToggleLockProfile={handleToggleLockProfile} 
+                onAddCriterion={handleAddCriterion} 
+                theme={theme} 
+                currentUser={currentUser} 
+              />
+            )}
+            {currentTab === 'employees' && (
+              <Employees 
+                employees={employees} 
+                profiles={profiles} 
+                onAddEmployee={handleAddEmployee} 
+                onUpdateEmployee={handleUpdateEmployee} 
+                onDeleteEmployee={handleDeleteEmployee} 
+                onStartEvaluation={(empId) => handleAddEvaluation(empId, 'دوره بهار ۱۴۰۳')} 
+                theme={theme} 
+              />
+            )}
+            {currentTab === 'evaluations' && (
+              <Evaluations 
+                evaluations={evaluations} 
+                employees={employees} 
+                profiles={profiles} 
+                criteria={criteria} 
+                onAddEvaluation={handleAddEvaluation} 
+                onUpdateEvaluation={handleUpdateEvaluation} 
+                onDeleteEvaluation={handleDeleteEvaluation} 
+                activeEvalId={activeEvalId} 
+                onSetActiveEval={setActiveEvalId} 
+                currentUser={currentUser} 
+              />
+            )}
+            {currentTab === 'calibration' && (
+              <Calibration 
+                evaluations={evaluations} 
+                employees={employees} 
+                profiles={profiles} 
+                onUpdateEvaluation={handleUpdateEvaluation} 
+                onSelectEvaluation={(id) => { setActiveEvalId(id); setCurrentTab('evaluations'); }} 
+              />
+            )}
+            {currentTab === 'reports' && (
+              <Reports 
+                evaluations={evaluations} 
+                employees={employees} 
+                profiles={profiles} 
+                criteria={criteria} 
+                onDeleteEvaluation={handleDeleteEvaluation} 
+                onSelectEvaluation={(id) => { setActiveEvalId(id); setCurrentTab('evaluations'); }} 
+                onNavigate={setCurrentTab} 
+                currentUser={currentUser} 
+              />
+            )}
+            {currentTab === 'lattice-hub' && (
+              <LatticePerformanceHub 
+                currentUser={currentUser} 
+                employees={employees} 
+                theme={theme} 
+                onNavigate={setCurrentTab} 
+              />
+            )}
+            {currentTab === 'kickidler-hub' && (
+              <KickidlerProductivityHub 
+                currentUser={currentUser} 
+                employees={employees} 
+                theme={theme} 
+                onNavigate={setCurrentTab} 
+              />
+            )}
+            {currentTab === 'onboarding' && (
+              <Onboarding 
+                currentUser={currentUser} 
+                onComplete={() => setCurrentTab(currentUser.role === 'employee' ? 'my-evaluation' : 'dashboard')} 
+                hasCertifiedBadge={hasCertifiedBadge} 
+                onGrantBadge={() => setHasCertifiedBadge(true)} 
+                theme={theme} 
+              />
+            )}
+            {currentTab === 'my-evaluation' && (
+              <MyEvaluation 
+                currentUser={currentUser} 
+                evaluations={evaluations} 
+                profiles={profiles} 
+                criteria={criteria} 
+                onUpdateEvaluation={handleUpdateEvaluation} 
+                onAddEvaluation={handleAddEvaluation} 
+                theme={theme} 
+              />
+            )}
+            {currentTab === 'settings' && (
+              currentUser.role === 'admin' ? (
+                <ManagementCenter 
+                  employees={employees} 
+                  profiles={profiles} 
+                  criteria={criteria} 
+                  evaluations={evaluations} 
+                  archivedEvaluations={archivedEvaluations} 
+                  onSetEmployees={setEmployees} 
+                  onSetProfiles={setProfiles} 
+                  onSetCriteria={setCriteria} 
+                  onSetEvaluations={setEvaluations} 
+                  onSetArchivedEvaluations={setArchivedEvaluations} 
+                  currentUser={currentUser} 
+                  theme={theme} 
+                  onForceReauth={handleForceAdminReauth} 
+                />
+              ) : (
+                <div className="bg-rose-500/10 border border-rose-500/30 rounded-3xl p-8 text-center space-y-4 max-w-lg mx-auto mt-12 shadow-xl">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+                    {/* FIXED BUG: Lock icon is safely imported and available */}
+                    <Lock className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-black text-rose-300">دسترسی محدود است</h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    این بخش اختصاص به مدیر ارشد منابع انسانی دارد.
+                  </p>
                 </div>
-                <h3 className="text-base font-black text-rose-300">⛔ عدم دسترسی مجاز به پرتال مدیریت</h3>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  تنظیمات پیشرفته و مرکز مدیریت سامانه منحصراً در اختیار مدیریت ارشد منابع انسانی با کلمه عبور اختصاصی می‌باشد.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab(currentUser.role === 'employee' ? 'my-evaluation' : 'dashboard')}
-                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
-                >
-                  بازگشت به داشبورد
-                </button>
-              </div>
-            )
-          )}
-          </Suspense>
+              )
+            )}
           </div>
         </div>
       </main>
 
-      {contextMenu?.visible && (
-        <div className={`fixed rounded-2xl border p-2 w-72 shadow-2xl z-50 text-right animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl ${theme === 'dark' ? 'bg-slate-900/95 border-slate-800 text-slate-200 shadow-teal-950/30' : 'bg-white/95 border-slate-200 text-slate-800 shadow-slate-300'}`} style={{ top: contextMenu.y, left: contextMenu.x }} onClick={(e) => e.stopPropagation()}>
-          <div className="px-3 py-2 border-b border-slate-800/15 text-[10px] font-black text-slate-400 flex justify-between items-center">
-            <span className="flex items-center gap-1.5 text-teal-400"><Sparkles className="w-3.5 h-3.5" /> میانبرهای ویژه</span>
-            <span className="text-[9px] bg-teal-500/10 text-teal-400 px-1.5 py-0.5 rounded font-mono">v3.5 CF</span>
-          </div>
-          <div className="p-1 space-y-0.5 mt-1 text-xs">
-            {currentUser.role !== 'employee' ? (
-              <>
-                <button type="button" onClick={() => { setCurrentTab('dashboard'); setContextMenu(null); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-teal-500/10 hover:text-teal-400 transition-all cursor-pointer">
-                  <div className="flex items-center gap-2"><Home className="w-3.5 h-3.5 text-teal-500" /><span>داشبورد من</span></div>
-                  <span className="text-[10px] text-slate-500 font-mono">Alt+1</span>
-                </button>
-                <button type="button" onClick={() => { setCurrentTab('evaluations'); setContextMenu(null); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-teal-500/10 hover:text-teal-400 transition-all cursor-pointer">
-                  <div className="flex items-center gap-2"><ClipboardCheck className="w-3.5 h-3.5 text-teal-500" /><span>ارزیابی‌ها</span></div>
-                  <span className="text-[10px] text-slate-500 font-mono">Alt+2</span>
-                </button>
-              </>
-            ) : (
-              <button type="button" onClick={() => { setCurrentTab('my-evaluation'); setContextMenu(null); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-teal-500/10 hover:text-teal-400 transition-all cursor-pointer">
-                <div className="flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-teal-500" /><span>ارزیابی من</span></div>
-                <span className="text-[10px] text-slate-500 font-mono">Alt+1</span>
-              </button>
-            )}
-            {currentUser.role === 'admin' && (
-              <button type="button" onClick={() => { setCurrentTab('settings'); setContextMenu(null); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-rose-500/10 hover:text-rose-400 transition-all cursor-pointer">
-                <div className="flex items-center gap-2"><LockKeyhole className="w-3.5 h-3.5 text-rose-500" /><span>تنظیمات پیشرفته</span></div>
-                <span className="text-[10px] text-rose-400 font-mono">SuperAdmin</span>
-              </button>
-            )}
-            <hr className={`my-1 ${theme === 'dark' ? 'border-slate-800' : 'border-slate-200'}`} />
-            <button type="button" onClick={() => { db.syncToCloudNow(); setContextMenu(null); notifyDataSaved(); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-sky-500/10 hover:text-sky-400 transition-all cursor-pointer text-sky-400">
-              <div className="flex items-center gap-2"><UploadCloud className="w-3.5 h-3.5" /><span>همگام‌سازی ابری (Force Sync)</span></div>
-              <span className="text-[10px] text-sky-400 font-mono">Sync</span>
-            </button>
-            <button type="button" onClick={handleQuickJSONBackup} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-indigo-500/10 hover:text-indigo-400 transition-all cursor-pointer text-indigo-400">
-              <div className="flex items-center gap-2"><Download className="w-3.5 h-3.5" /><span>بکاپ سریع (JSON)</span></div>
-              <span className="text-[10px] text-indigo-400 font-mono">Backup</span>
-            </button>
-            <button type="button" onClick={() => { setContextMenu(null); setIsManualModalOpen(true); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-teal-500/10 hover:text-teal-400 transition-all cursor-pointer text-teal-400">
-              <div className="flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /><span>کتابچه راهنمای جامع (PDF)</span></div>
-              <span className="text-[10px] text-teal-400 font-mono">Manual</span>
-            </button>
-            <button type="button" onClick={() => { setContextMenu(null); window.print(); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-teal-500/10 hover:text-teal-400 transition-all cursor-pointer">
-              <div className="flex items-center gap-2"><Printer className="w-3.5 h-3.5" /><span>پرینت / PDF گزارش</span></div>
-              <span className="text-[10px] text-slate-500 font-mono">Ctrl+P</span>
-            </button>
-            <button type="button" onClick={() => { handleToggleTheme(); setContextMenu(null); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-teal-500/10 hover:text-teal-400 transition-all cursor-pointer">
-              <div className="flex items-center gap-2">{theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-indigo-500" />}<span>تغییر قالب</span></div>
-              <span className="text-[10px] text-slate-500">{theme === 'dark' ? 'روشن' : 'تاریک'}</span>
-            </button>
-            <button type="button" onClick={() => { handleStartTour(); setContextMenu(null); }} className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-teal-500/10 hover:text-teal-400 transition-all cursor-pointer">
-              <div className="flex items-center gap-2"><HelpCircle className="w-3.5 h-3.5 text-teal-400" /><span>آموزش مجدد</span></div>
-              <span className="text-[10px] text-slate-500 font-mono">Tour</span>
-            </button>
-            <hr className={`my-1 ${theme === 'dark' ? 'border-slate-800' : 'border-slate-200'}`} />
-            <div className="px-3 py-1 text-[10px] text-slate-500 flex justify-between items-center">
-              <span className="truncate">{currentUser.name}</span><span className="font-mono">{currentUser.code}</span>
-            </div>
-            <button type="button" onClick={() => { handleLogout(); setContextMenu(null); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer font-bold">
-              <LogOut className="w-3.5 h-3.5" /><span>خروج از حساب</span>
-            </button>
-          </div>
-        </div>
-      )}
-      
-       {activeTourStep !== null && currentTourSteps[activeTourStep] && (
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-[999] p-4 font-sans text-right" dir="rtl">
-           <div className="bg-slate-900 border border-teal-500/40 p-6 rounded-3xl max-w-md w-full space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
-             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-               <div className="flex items-center gap-2">
-                 <div className="w-2.5 h-2.5 rounded-full bg-teal-400 animate-ping" />
-                 <h3 className="text-sm font-black text-teal-400">راهنمای هوشمند</h3>
-               </div>
-               <span className="text-[10px] bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-lg font-mono">{activeTourStep + 1} از {currentTourSteps.length}</span>
-             </div>
-             <div className="space-y-2">
-               <h4 className="text-sm font-black text-slate-100">{currentTourSteps[activeTourStep].title}</h4>
-               <p className="text-xs text-slate-400 leading-relaxed font-medium">{currentTourSteps[activeTourStep].desc}</p>
-             </div>
-             <div className="flex justify-between items-center pt-2">
-               <button type="button" onClick={() => setActiveTourStep(null)} className="text-xs text-slate-500 hover:text-slate-300 font-bold transition-colors cursor-pointer">بستن آموزش</button>
-               <div className="flex items-center gap-2">
-                 {activeTourStep > 0 && <button type="button" onClick={handlePrevTourStep} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer border border-slate-700">قبلی</button>}
-                 <button type="button" onClick={handleNextTourStep} className="bg-teal-500 hover:bg-teal-600 text-slate-950 font-black px-4 py-2 rounded-xl text-xs transition-all shadow-lg shadow-teal-500/20 cursor-pointer">
-                   {activeTourStep === currentTourSteps.length - 1 ? 'پایان' : 'بعدی'}
-                 </button>
-               </div>
-             </div>
-           </div>
-        </div>
-      )}
-
-      {/* Comprehensive System Manual & Printable PDF Guide Modal */}
-      <Suspense fallback={null}>
-        <ComprehensiveManualModal
-          isOpen={isManualModalOpen}
-          onClose={() => setIsManualModalOpen(false)}
-          theme={theme}
-          currentUser={currentUser}
-          employees={employees}
-        />
-      </Suspense>
+      <ComprehensiveManualModal
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
+        theme={theme}
+        currentUser={currentUser}
+        employees={employees}
+      />
     </div>
   );
 }

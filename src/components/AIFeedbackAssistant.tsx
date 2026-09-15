@@ -85,14 +85,14 @@ export default function AIFeedbackAssistant({
       });
 
       if (!response.ok) {
-        throw new Error('عدم دریافت پاسخ معتبر از سرویس هوش مصنوعی');
+        throw new Error('خطا در ارتباط با سرویس هوش مصنوعی');
       }
 
       const data = await response.json();
       setResult(data);
     } catch (err: any) {
       console.error('AI Feedback Generation failed:', err);
-      setError(err.message || 'خطایی در تولید بازخورد رخ داد.');
+      setError(err.message || 'خطا در ارتباط با سرور هوشمند.');
     } finally {
       setIsLoading(false);
     }
@@ -119,8 +119,6 @@ export default function AIFeedbackAssistant({
         ? 'bg-slate-900/80 border-teal-500/30 shadow-lg shadow-teal-500/5' 
         : 'bg-white border-teal-500/30 shadow-md'
     } ${className}`} dir="rtl">
-      
-      {/* Header Banner */}
       <div className="p-3.5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-slate-950 shadow-md">
@@ -128,13 +126,13 @@ export default function AIFeedbackAssistant({
           </div>
           <div>
             <h4 className="text-xs font-black text-teal-400 flex items-center gap-1.5">
-              <span>تحلیل هوشمند نظرات و پیشنهاد بازخورد شایستگی‌ها (AI)</span>
+              <span>دستیار هوشمند نگارش بازخورد مربیگری (AI)</span>
               <span className="px-1.5 py-0.2 bg-teal-500/20 text-teal-300 text-[9px] rounded-md border border-teal-500/30">
-                Gemini 3.7
+                Gemini 2.5
               </span>
             </h4>
             <p className="text-[10px] text-slate-400 mt-0.5">
-              تبدیل یادداشت‌های سرپرست به بازخورد رشددهنده بر اساس ابعاد پنج‌گانه شایستگی
+              تبدیل نظرات کلی سرپرست به متن رسمی و برنامه توسعه فردی
             </p>
           </div>
         </div>
@@ -150,20 +148,18 @@ export default function AIFeedbackAssistant({
           className="px-3 py-1.5 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer shrink-0"
         >
           <BrainCircuit className="w-3.5 h-3.5" />
-          <span>{result ? (isOpen ? 'بستن پنل هوش مصنوعی' : 'نمایش تحلیل AI') : 'اجرای تحلیل هوشمند'}</span>
+          <span>{result ? (isOpen ? 'بستن دستیار' : 'مشاهده تحلیل AI') : 'تولید هوشمند بازخورد'}</span>
           {isOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         </button>
       </div>
 
-      {/* Expanded Content Area */}
       {isOpen && (
         <div className="p-4 border-t border-slate-800/80 space-y-4">
-          
           {isLoading && (
             <div className="py-8 flex flex-col items-center justify-center gap-3 text-teal-400">
               <div className="w-8 h-8 border-3 border-teal-400 border-t-transparent rounded-full animate-spin" />
               <p className="text-xs font-bold animate-pulse">
-                هوش مصنوعی در حال تحلیل متن نظر سرپرست و انطباق با ابعاد شایستگی...
+                هوش مصنوعی در حال تحلیل شایستگی‌ها و بازنویسی بازخورد سرپرست است...
               </p>
             </div>
           )}
@@ -186,8 +182,6 @@ export default function AIFeedbackAssistant({
 
           {result && !isLoading && (
             <div className="space-y-4 animate-in fade-in duration-300">
-              
-              {/* Refined Supervisor Feedback Card */}
               <div className={`p-3.5 rounded-2xl border ${
                 isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
               }`}>
@@ -195,7 +189,7 @@ export default function AIFeedbackAssistant({
                   <div className="flex items-center gap-2">
                     <Zap className="w-4 h-4 text-amber-400" />
                     <h5 className="text-xs font-black text-slate-200">
-                      پیشنهاد بازنویسی حرفه‌ای نظر سرپرست:
+                      متن بازنویسی‌شده رسمی و سازنده:
                     </h5>
                   </div>
                   <div className="flex items-center gap-2">
@@ -214,75 +208,60 @@ export default function AIFeedbackAssistant({
                         className="px-2.5 py-1 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-lg text-[10px] font-black flex items-center gap-1 transition-colors shadow cursor-pointer"
                       >
                         <CheckCircle2 className="w-3 h-3" />
-                        <span>{applied ? 'در فرم اعمال شد ✓' : 'اعمال در فرم ارزیابی'}</span>
+                        <span>{applied ? 'درج گردید' : 'اعمال در ارزیابی'}</span>
                       </button>
                     )}
                   </div>
                 </div>
-
                 <p className="text-xs leading-relaxed text-slate-300 font-medium">
                   {result.refinedComment}
                 </p>
               </div>
 
-              {/* 5-Dimension Competency Targeted Suggestions */}
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-teal-400">
                   <Layers className="w-3.5 h-3.5" />
-                  <span>توصیه‌های اختصاصی بر اساس ابعاد پنج‌گانه شایستگی:</span>
+                  <span>توصیه‌های تفکیکی پنج بعد شایستگی:</span>
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
-                  
-                  {/* Dimension K */}
                   <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 flex items-start gap-2">
                     <span className="px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-400 font-black text-[10px] shrink-0">
                       K: کمی
                     </span>
-                    <p className="text-slate-300">{result.competencyFeedback.quantitative}</p>
+                    <p className="text-slate-300">{result.competencyFeedback?.quantitative}</p>
                   </div>
-
-                  {/* Dimension Q */}
                   <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 flex items-start gap-2">
                     <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-black text-[10px] shrink-0">
-                      Q: کیفیت
+                      Q: کیفی
                     </span>
-                    <p className="text-slate-300">{result.competencyFeedback.quality}</p>
+                    <p className="text-slate-300">{result.competencyFeedback?.quality}</p>
                   </div>
-
-                  {/* Dimension B */}
                   <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 flex items-start gap-2">
                     <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 font-black text-[10px] shrink-0">
-                      B: رفتار
+                      B: رفتاری
                     </span>
-                    <p className="text-slate-300">{result.competencyFeedback.behavioral}</p>
+                    <p className="text-slate-300">{result.competencyFeedback?.behavioral}</p>
                   </div>
-
-                  {/* Dimension S */}
                   <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 flex items-start gap-2">
                     <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-black text-[10px] shrink-0">
-                      S: HSE
+                      S: ایمنی HSE
                     </span>
-                    <p className="text-slate-300">{result.competencyFeedback.safetyHse}</p>
+                    <p className="text-slate-300">{result.competencyFeedback?.safetyHse}</p>
                   </div>
-
-                  {/* Dimension L */}
                   <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 flex items-start gap-2 md:col-span-2">
                     <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-black text-[10px] shrink-0">
-                      L: مربی‌گری و تیم
+                      L: رهبری و تیم
                     </span>
-                    <p className="text-slate-300">{result.competencyFeedback.leadershipTeam}</p>
+                    <p className="text-slate-300">{result.competencyFeedback?.leadershipTeam}</p>
                   </div>
-
                 </div>
               </div>
 
-              {/* Action Plans / IDP */}
               {result.actionPlan && result.actionPlan.length > 0 && (
                 <div className="p-3 rounded-xl bg-teal-500/5 border border-teal-500/20 space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-teal-400">
                     <Award className="w-3.5 h-3.5" />
-                    <span>برنامه اقدام فردی (IDP) پیشنهادی:</span>
+                    <span>اقدامات پیشنهادی برنامه توسعه فردی (IDP):</span>
                   </div>
                   <ul className="list-disc list-inside text-[11px] text-slate-300 space-y-1">
                     {result.actionPlan.map((action, i) => (
@@ -292,7 +271,6 @@ export default function AIFeedbackAssistant({
                 </div>
               )}
 
-              {/* Bottom Re-Generate Action */}
               <div className="flex justify-end pt-1">
                 <button
                   type="button"
@@ -300,16 +278,13 @@ export default function AIFeedbackAssistant({
                   className="text-[11px] text-slate-400 hover:text-teal-400 flex items-center gap-1 font-semibold transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3 h-3" />
-                  <span>تولید مجدد تحلیل هوشمند</span>
+                  <span>تولید مجدد نسخه دیگر</span>
                 </button>
               </div>
-
             </div>
           )}
-
         </div>
       )}
-
     </div>
   );
 }

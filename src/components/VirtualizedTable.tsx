@@ -8,7 +8,7 @@ import { useVirtualizer } from '../hooks/useVirtualizer';
 import { Zap } from 'lucide-react';
 
 interface Column<T> {
-  header: string;
+  header: ReactNode;
   className?: string;
   width?: string;
 }
@@ -60,21 +60,19 @@ export function VirtualizedTable<T>({
     <div className={`rounded-2xl border overflow-hidden shadow-sm flex flex-col ${
       theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
     }`}>
-      {/* High-Performance Performance Badge */}
       <div className={`px-4 py-2 border-b flex items-center justify-between text-[11px] ${
         theme === 'dark' ? 'bg-slate-950/60 border-slate-800/80 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-500'
       }`}>
         <div className="flex items-center gap-1.5 font-bold">
           <Zap className="w-3.5 h-3.5 text-teal-400 fill-teal-400" />
-          <span>موتور رندر مجازی‌سازی فعال (Virtual Scrolling):</span>
-          <span className="text-teal-400 font-mono font-black">{items.length.toLocaleString('fa-IR')} رکورد</span>
+          <span>موتور مجازی‌سازی جدول (Virtual Scrolling):</span>
+          <span className="text-teal-400 font-mono font-black">{items.length.toLocaleString('fa-IR')} ردیف</span>
         </div>
         <div className="text-[10px] text-slate-500 font-mono hidden sm:block">
-          رندر بهینه DOM: فقط {virtualItems.length} سطر همزمان
+          عناصر همزمان در DOM: تنها {virtualItems.length} گره
         </div>
       </div>
 
-      {/* Table Sticky Header */}
       <div className="overflow-x-auto w-full">
         <div className="min-w-[700px]">
           <div className={`grid border-b select-none font-bold text-xs ${
@@ -89,7 +87,6 @@ export function VirtualizedTable<T>({
             </div>
           </div>
 
-          {/* Virtual Scroll Area */}
           <div
             ref={containerRef}
             onScroll={handleScroll}

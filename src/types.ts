@@ -7,8 +7,8 @@ export type CategoryKey = 'K' | 'Q' | 'B' | 'S' | 'L';
 
 export interface KpiVariableDefinition {
   key: string;            // e.g. "actual", "target", "scrap", "cycle_time"
-  label: string;          // e.g. "تولید واقعی", "برنامه مصوب"
-  unit?: string;          // e.g. "عدد", "ثانیه", "درصد"
+  label: string;          // e.g. "تولید واقعی", "هدف تولید"
+  unit?: string;          // e.g. "عدد", "درصد", "ثانیه"
   defaultValue?: number;
 }
 
@@ -17,7 +17,7 @@ export type KpiCalculationType =
   | 'inverse_ratio'   // (standard / actual) * 100
   | 'defect_rate'     // 100 - (scrap / total) * 100
   | 'custom_formula'  // e.g. "(actual / target) * 90 + (quality * 0.1)"
-  | 'direct_score';   // مقیاس ۱ تا ۵ مستقیم
+  | 'direct_score';   // نمره‌دهی مستقیم دستی
 
 export interface KpiScoreThresholds {
   score5: number; // e.g. >= 105
@@ -27,17 +27,17 @@ export interface KpiScoreThresholds {
 }
 
 export type CriterionScoringSource = 
-  | 'supervisor' // ارزیابی و امتیازدهی مستقیم سرپرست کارگاه / مدیر مستقیم
-  | 'mis'        // ورود خودکار داده‌ها از سامانه تولید و کیفیت MIS/MES
-  | 'kasra'      // ورود خودکار داده‌ها از سامانه حضور و غیاب کسری
-  | 'system'     // محاسبه خودکار سیستمی با موتور فرمول‌ساز KPI
-  | 'multi_source'; // تامین ترکیبی از چند منبع (مانند MIS + کسری + سرپرست)
+  | 'supervisor' // ارزیابی کیفی سرپرست مستقیم
+  | 'mis'        // سیستم اطلاعات تولید MIS/MES
+  | 'kasra'      // سیستم حضور و غیاب کسری
+  | 'system'     // سیستم محاسبه خودکار فرمول KPI
+  | 'multi_source'; // ترکیبی چند منبعی (MIS + سرپرست)
 
 export interface MultiSourceItemConfig {
   source: 'supervisor' | 'mis' | 'kasra' | 'system';
   weightPercent: number; // e.g. 50 (for 50%)
   misMetricKey?: MisMetricKey;
-  label?: string; // e.g. "تولید و راندمان MIS", "انضباط و تردد کسری", "کیفیت و سرپرست"
+  label?: string; // e.g. "ثبت داده تولید MIS", "نمره مهارتی سرپرست"
 }
 
 export interface MultiSourceConfig {
@@ -46,15 +46,15 @@ export interface MultiSourceConfig {
 }
 
 export type MisMetricKey = 
-  | 'efficiency'         // راندمان خط و تحقق برنامه زمان‌بندی تولید
-  | 'scrap_rate'         // نرخ ضایعات و قطعات اسقاطی
-  | 'quality_score'      // نرخ کیفیت و انطباق کیفی قطعات (QC)
+  | 'efficiency'         // راندمان تولید
+  | 'scrap_rate'         // نرخ ضایعات
+  | 'quality_score'      // نمره کیفی (QC)
   | 'output_qty'         // تیراژ تولید واقعی
-  | 'downtime'           // توقفات خط و خرابی تجهیزات
-  | 'attendance_delay'   // دقایق تاخیر ورود پرسنل
+  | 'downtime'           // زمان توقفات
+  | 'attendance_delay'   // دقایق تاخیر ورود
   | 'attendance_absence' // روزهای غیبت
-  | 'discipline'         // انضباط اداری و تخلفات
-  | 'custom';            // شاخص سفارشی با نام متغیر آزاد
+  | 'discipline'         // گزارش انضباطی
+  | 'custom';            // فیلد سفارشی
 
 export interface Criterion {
   id: string;
@@ -65,19 +65,19 @@ export interface Criterion {
   source?: string;
   method?: string;
   dir?: 'more' | 'less'; // 'more' = higher is better, 'less' = lower is better
-  scoringSource?: CriterionScoringSource; // مشخص‌کننده منبع ورود نمره (سرپرست یا MIS یا کسری یا چندمنبعی)
-  misMetricKey?: MisMetricKey;            // کلید متریک متناظر در سامانه MIS
-  customMetricField?: string;             // نام فیلد در فایل اکسل در صورت سفارشی بودن
-  autoPopulate?: boolean;                 // اعمال خودکار نمره هنگام آپلود اکسل
-  misTargetValue?: number;                // هدف عددی تعیین‌شده برای شاخص
-  multiSourceConfig?: MultiSourceConfig;  // پیکربندی ترکیب منابع تامین داده
+  scoringSource?: CriterionScoringSource; // منبع نمره‌دهی
+  misMetricKey?: MisMetricKey;            // کلید متریک مربوطه
+  customMetricField?: string;             // نام فیلد در شیت سفارشی
+  autoPopulate?: boolean;                 // آیا نمره به طور خودکار ثبت شود؟
+  misTargetValue?: number;                // تارگت مبنا
+  multiSourceConfig?: MultiSourceConfig;  // تنظیمات چندمنبعی
   calculationType?: KpiCalculationType;
   formulaExpression?: string;
   variables?: KpiVariableDefinition[];
   unit?: string;
   targetValue?: number;
   scoreThresholds?: KpiScoreThresholds;
-  department?: string; // بخش یا واحد سازمانی تأمین‌کننده شاخص (مانند تولید، کنترل کیفیت، HSE)
+  department?: string; // دپارتمان تخصصی (تولید، کنترل کیفیت، HSE)
 }
 
 export interface ProfileItem {
@@ -92,7 +92,6 @@ export interface JobProfile {
   family: string; // e.g., B (Blue-collar), W (White-collar)
   locked: boolean;
   items: ProfileItem[];
-  baseRewardAmount?: number;
 }
 
 export type UserRole = 'admin' | 'supervisor' | 'employee';
@@ -110,19 +109,18 @@ export interface Employee {
   calibrationLeadId?: string; // Calibration committee lead (Stage 3)
   approverId?: string; // Final HR Approver (Stage 4)
   hrPartnerId?: string; // HR Business Partner for feedback meeting (Stage 5)
-  permissions?: string[]; // Granular RBAC permissions
 }
 
 export type WorkflowStageKey = 
-  | 'self_review'        // خودارزیابی کارمند
+  | 'self_review'        // خودارزیابی پرسنل
   | 'supervisor_review'  // ارزیابی سرپرست مستقیم
-  | 'peer_review'        // بازخورد همتا و ۳۶۰ درجه
-  | 'calibration_review' // کمیته کالیبراسیون و انطباق سازمانی
+  | 'peer_review'        // بازخورد ۳۶۰ درجه همتراز
+  | 'calibration_review' // بررسی کمیته کالیبراسیون
   | 'hr_approval'        // تایید نهایی مدیریت منابع انسانی
-  | 'feedback_meeting'   // گفت‌وگوی بازخورد و ابلاغ کارنامه
-  | 'completed'          // خاتمه‌یافته و ثبت در سوابق
-  | 'rejected'           // عودت داده‌شده جهت بازنگری
-  | 'appealed';          // ثبت اعتراض و در حال رسیدگی کمیته تجدیدنظر
+  | 'feedback_meeting'   // جلسه بازخورد و تنظیم IDP
+  | 'completed'          // خاتمه‌یافته و قفل‌شده
+  | 'rejected'           // عودت داده شده برای بازنگری
+  | 'appealed';          // ثبت اعتراض و تجدیدنظر
 
 export interface WorkflowTransitionLog {
   id: string;
@@ -155,11 +153,11 @@ export interface EvaluationRouteRule {
 
 export interface IDPItem {
   id: string;
-  competencyArea: string; // e.g. "دقت و انضباط فرآیندی"
+  competencyArea: string; // e.g. "شایستگی فنی و ایمنی"
   actionType: 'training_course' | 'on_the_job' | 'mentorship' | 'job_shadowing' | 'project_assignment';
   title: string;
   description: string;
-  targetDate: string; // e.g. "۱۴۰۵/۰۸/۳۰"
+  targetDate: string; // e.g. "۱۴۰۴/۰۹/۳۰"
   mentorName?: string;
   status: 'planned' | 'in_progress' | 'completed' | 'cancelled';
   completionNotes?: string;
@@ -198,13 +196,13 @@ export interface ScoreItem {
   self: number;  // 1 to 5, or 0 if unrated (Employee)
   peer?: number; // 1 to 5, or 0 if unrated (Peer/360)
   doc?: string;  // Supporting document / justification
-  sourceType?: 'supervisor' | 'mis' | 'kasra' | 'system' | 'multi_source' | 'auto'; // منبع ثبت نمره فعلی
-  autoPopulated?: boolean; // آیا از اکسل MIS یا کسری به صورت خودکار نشانده شده
-  rawMetricValue?: number | string; // مقدار خام ورودی مانند راندمان ۹۵٪ یا تاخیر ۳۰ دقیقه
-  rawMetricLabel?: string; // برچسب متریک مانند "راندمان خط"
-  overrideNote?: string; // توضیح سرپرست در صورت تغییر دستی نمره خودکار
-  overrideBy?: string;   // نام کاربری که تغییر را انجام داده
-  sourceBreakdown?: ScoreSourceBreakdown; // تفکیک نمرات چند منبعی (MIS، کسری، سرپرست)
+  sourceType?: 'supervisor' | 'mis' | 'kasra' | 'system' | 'multi_source' | 'auto';
+  autoPopulated?: boolean;
+  rawMetricValue?: number | string;
+  rawMetricLabel?: string;
+  overrideNote?: string;
+  overrideBy?: string;
+  sourceBreakdown?: ScoreSourceBreakdown;
 }
 
 export interface UserCustomPermission {
@@ -302,16 +300,16 @@ export interface Evaluation {
   id: string;
   empId: string;
   profileId: string;
-  period: string; // e.g., "نیمه اول ۱۴۰۵"
+  period: string; // e.g., "دوره بهار ۱۴۰۳"
   status: 'draft' | 'calibrated' | 'locked';
   stage?: WorkflowStageKey; // Current workflow stage
-  currentAssigneeId?: string; // Who currently has the task (e.g. employee, supervisor, HR/admin)
+  currentAssigneeId?: string; // Who currently has the task
   currentAssigneeName?: string;
   currentAssigneeRole?: UserRole;
   history?: WorkflowTransitionLog[]; // Audit trail of stage movements
-  finalReward?: number; // Calculated financial reward based on score
   rejectionReason?: string;
   scores: ScoreItem[];
+  overallScore?: number; // Optional overall score cache
   potentialScore?: number; // 1 to 5 for 9-Box Grid
   nineBoxPlacement?: {
     performance: 'low' | 'medium' | 'high';
@@ -334,19 +332,19 @@ export interface Evaluation {
 }
 
 export const CATEGORIES: Record<CategoryKey, string> = {
-  K: 'نتایج کمی (KPI)',
-  Q: 'کیفیت و انطباق',
-  B: 'رفتارهای شایستگی',
-  S: 'ایمنی (HSE)',
-  L: 'رهبری و مدیریت',
+  K: 'عملکرد کمی (KPI)',
+  Q: 'شایستگی کیفی',
+  B: 'شایستگی رفتاری',
+  S: 'ایمنی و محیط زیست (HSE)',
+  L: 'رهبری و کار تیمی'
 };
 
 export const PERFORMANCE_SCALE: Record<number, string> = {
-  5: 'فراتر از انتظار',
-  4: 'بالاتر از انتظار',
-  3: 'مطابق انتظار',
-  2: 'نیازمند بهبود',
-  1: 'غیرقابل قبول',
+  5: 'فراتر از انتظار (عالی)',
+  4: 'در حد انتظار (خوب)',
+  3: 'متوسط (نیازمند بهبود جزیی)',
+  2: 'زیر حد انتظار (ضعیف)',
+  1: 'غیرقابل قبول (بحرانی)'
 };
 
 export const NEED_DOCUMENT_SCORES = [1, 2, 5];
@@ -357,12 +355,12 @@ export const MANDATORY_SAFETY_CODE = 'S-01';
 export const SCALE_FACTOR = 20; // 1-5 scale to 100 scale
 
 export const CYCLE_STEPS = [
-  { step: 1, title: 'هدف‌گذاری و تفاهم‌نامه', desc: 'تعیین معیارها و اوزان در ابتدای دوره' },
-  { step: 2, title: 'بازخورد مستمر و میان‌دوره', desc: 'گفت‌وگوهای هدایت‌گر و پایش مسیر کار' },
-  { step: 3, title: 'خودارزیابی کارمند', desc: 'ثبت خودارزیابی توسط کارمند برای توسعه سلف-آگاهی' },
-  { step: 4, title: 'ارزیابی نهایی سرپرست', desc: 'ثبت نمرات و مستندات پشتیبان برای رتبه‌های خاص' },
-  { step: 5, title: 'کالیبراسیون سازمانی', desc: 'هم‌ترازسازی نمرات جهت رفع تورم نمره و سوگیری' },
-  { step: 6, title: 'ابلاغ، بازخورد و توسعه', desc: 'جلسه گفت‌وگوی توسعه‌ای و بازخورد رشددهنده' },
+  { step: 1, title: 'هدف‌گذاری و تبیین شاخص‌ها', desc: 'توافق بر سر اهداف و اوزان' },
+  { step: 2, title: 'خودارزیابی پرسنل', desc: 'تکمیل فرم توسط کارمند' },
+  { step: 3, title: 'ارزیابی سرپرست مستقیم', desc: 'ثبت نمرات با شواهد عینی' },
+  { step: 4, title: 'جلسه کالیبراسیون سازمانی', desc: 'متعادل‌سازی نمرات واحدها' },
+  { step: 5, title: 'جلسه بازخورد مربیگری', desc: 'گفتگوی توسعه فردی' },
+  { step: 6, title: 'برنامه توسعه فردی و پاداش', desc: 'تدوین برنامه IDP' }
 ];
 
 export function getGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'E' {
@@ -382,95 +380,95 @@ export const WORKFLOW_STAGES: Record<WorkflowStageKey, {
   responsibleLabel: string;
 }> = {
   self_review: {
-    label: 'خودارزیابی کارمند',
+    label: 'خودارزیابی پرسنل',
     stepNumber: 1,
-    description: 'ثبت نمرات خودارزیابی و شواهد توسط کارمند',
+    description: 'پرسنل نمرات و مستندات خود را ثبت و ارسال می‌کند',
     badgeColor: 'blue',
     actorRole: 'employee',
-    responsibleLabel: 'کارمند (شاغل)'
+    responsibleLabel: 'همکار / پرسنل'
   },
   supervisor_review: {
     label: 'ارزیابی سرپرست مستقیم',
     stepNumber: 2,
-    description: 'بررسی، ثبت نمرات سرپرست و شواهد ارزیابی',
+    description: 'سرپرست مستقیم نمرات و یادداشت مربیگری را درج می‌کند',
     badgeColor: 'amber',
     actorRole: 'supervisor',
-    responsibleLabel: 'سرپرست مستقیم خط / واحد'
+    responsibleLabel: 'سرپرست مستقیم'
   },
   peer_review: {
-    label: 'ارزیابی ۳۶۰ درجه و همتا',
+    label: 'بازخورد ۳۶۰ درجه همتراز',
     stepNumber: 3,
-    description: 'دریافت بازخورد همکاران و سرپرستان ماتریسی',
+    description: 'همکاران هم‌رده و واحدهای مرتبط بازخورد خود را ثبت می‌کنند',
     badgeColor: 'cyan',
     actorRole: 'any',
-    responsibleLabel: 'ارزیاب همتا / سرپرست تخصصی'
+    responsibleLabel: 'همتراز / ارزیاب ۳۶۰'
   },
   calibration_review: {
-    label: 'کمیته کالیبراسیون و انطباق',
+    label: 'جلسه کالیبراسیون و انطباق',
     stepNumber: 4,
-    description: 'کنترل توزیع نرمال، رفع تورم نمره و هم‌ترازی سازمانی',
+    description: 'کمیته ارزیابی جهت ایجاد عدالت و رفع سوگیری نمرات را بررسی می‌کند',
     badgeColor: 'purple',
     actorRole: 'admin',
-    responsibleLabel: 'کمیته کالیبراسیون و ارزیابی'
+    responsibleLabel: 'کمیته کالیبراسیون'
   },
   hr_approval: {
     label: 'تایید نهایی مدیریت منابع انسانی',
     stepNumber: 5,
-    description: 'تایید نهایی، قفل نمرات و صدور مجوز کارنامه',
+    description: 'مدیر منابع انسانی نتایج نهایی و رتبه‌بندی را تایید می‌کند',
     badgeColor: 'indigo',
     actorRole: 'admin',
-    responsibleLabel: 'مدیریت ارشد منابع انسانی'
+    responsibleLabel: 'مدیریت منابع انسانی'
   },
   feedback_meeting: {
-    label: 'گفت‌وگوی بازخورد و IDP',
+    label: 'جلسه بازخورد و تنظیم IDP',
     stepNumber: 6,
-    description: 'جلسه بازخورد توسعه‌ای و تدوین برنامه بهبود فردی',
+    description: 'سرپرست و همکار جلسه بازخورد و برنامه‌ریزی توسعه فردی را برگزار می‌کنند',
     badgeColor: 'teal',
     actorRole: 'supervisor',
-    responsibleLabel: 'سرپرست و شاغل'
+    responsibleLabel: 'سرپرست و همکار'
   },
   completed: {
-    label: 'مختومه و بایگانی شده',
+    label: 'خاتمه‌یافته و قفل‌شده',
     stepNumber: 7,
-    description: 'پرونده نهایی شده و در سوابق پرسنلی ثبت گردید',
+    description: 'چرخه کامل شده و نمرات قطعی گردیده‌اند',
     badgeColor: 'emerald',
     actorRole: 'any',
-    responsibleLabel: 'اتمام فرآیند'
+    responsibleLabel: 'بایگانی قطعی'
   },
   rejected: {
-    label: 'عودت داده شده جهت اصلاح',
+    label: 'عودت جهت اصلاح و بازنگری',
     stepNumber: 0,
-    description: 'عودت به مرحله قبل به دلیل نقص مستندات یا عدم انطباق',
+    description: 'ارزیابی به دلیل نقص شواهد یا مغایرت نمرات بازگردانده شده است',
     badgeColor: 'rose',
     actorRole: 'any',
     responsibleLabel: 'نیازمند بازنگری'
   },
   appealed: {
-    label: 'در حال رسیدگی به اعتراض',
+    label: 'ثبت اعتراض و تجدیدنظر',
     stepNumber: 8,
-    description: 'اعتراض شاغل توسط کمیته تجدیدنظر در حال بررسی است',
+    description: 'همکار درخواست بازبینی مجدد نتایج را در کمیته ثبت کرده است',
     badgeColor: 'orange',
     actorRole: 'admin',
-    responsibleLabel: 'کمیته تجدیدنظر و فرجام‌خواهی'
+    responsibleLabel: 'کمیته رسیدگی به شکایات'
   }
 };
 
 export const NINE_BOX_MATRIX = {
-  high_high: { title: 'ستاره آینده‌ساز (Future Star)', category: 'star' as const, color: 'emerald', desc: 'عملکرد برتر و پتانسیل جهش سازمانی / گزینش برای رهبری' },
-  high_med: { title: 'پیشران با پتانسیل بالا (Growth Driver)', category: 'high_performer' as const, color: 'teal', desc: 'عملکرد عالی با ظرفیت ارتقای چندجانبه' },
-  high_low: { title: 'متخصص مجرب (Expert / Core Specialist)', category: 'high_performer' as const, color: 'blue', desc: 'عملکرد بسیار پایدار و تسلط عمیق تخصصی' },
-  med_high: { title: 'استعداد نوظهور (Emerging Talent)', category: 'high_performer' as const, color: 'cyan', desc: 'پتانسیل بالا نیازمند تثبیت و رشد عملکرد' },
-  med_med: { title: 'ستون استوار سازمان (Core Performer)', category: 'core_player' as const, color: 'indigo', desc: 'عملکرد و پتانسیل متعادل و مورد اعتماد' },
-  med_low: { title: 'شاغل موثر (Effective Contributor)', category: 'core_player' as const, color: 'amber', desc: 'انجام وظایف استاندارد، حفظ انگیزه و تثبیت' },
-  low_high: { title: 'پتانسیل خام / معمای سازمانی (Enigma)', category: 'inconsistent' as const, color: 'purple', desc: 'پتانسیل بالا اما عملکرد نامطلوب / نیازمند تغییر نقش یا انگیزش' },
-  low_med: { title: 'نیازمند توانمندسازی (Dilemma)', category: 'inconsistent' as const, color: 'orange', desc: 'نیازمند آموزش فوری و مربیگری مهارتی' },
-  low_low: { title: 'ریسک عملکردی (Underperformer)', category: 'talent_risk' as const, color: 'rose', desc: 'نیازمند برنامه اقدام اصلاحی اضطراری (PIP)' }
+  high_high: { title: 'ستارگان آینده (Future Star)', category: 'star' as const, color: 'emerald', desc: 'عملکرد عالی و پتانسیل رشد بسیار بالا' },
+  high_med: { title: 'محرک رشد (Growth Driver)', category: 'high_performer' as const, color: 'teal', desc: 'عملکرد برجسته با پتانسیل پیشرفت خوب' },
+  high_low: { title: 'متخصص مجرب (Expert / Core Specialist)', category: 'high_performer' as const, color: 'blue', desc: 'عملکرد فنی عالی در جایگاه کنونی' },
+  med_high: { title: 'استعداد در حال رشد (Emerging Talent)', category: 'high_performer' as const, color: 'cyan', desc: 'عملکرد قابل‌قبول با پتانسیل ارتقای بالا' },
+  med_med: { title: 'ستون عملکرد کارگاه (Core Performer)', category: 'core_player' as const, color: 'indigo', desc: 'نیروی اتکاپذیر و متعهد' },
+  med_low: { title: 'همکار موثر (Effective Contributor)', category: 'core_player' as const, color: 'amber', desc: 'انجام وظایف محوله در حد استاندارد' },
+  low_high: { title: 'پتانسیل نهفته (Enigma)', category: 'inconsistent' as const, color: 'purple', desc: 'استعداد بالا اما نیازمند جهت‌دهی عملکردی' },
+  low_med: { title: 'نیازمند هدایت (Dilemma)', category: 'inconsistent' as const, color: 'orange', desc: 'عملکرد نوسانی و نیازمند آموزش' },
+  low_low: { title: 'ریسک عملکردی (Underperformer)', category: 'talent_risk' as const, color: 'rose', desc: 'نیازمند برنامه فوری بهبود عملکرد (PIP)' }
 };
 
 export const DEFAULT_ROUTE_RULES: EvaluationRouteRule[] = [
   {
     id: 'route-default-workshop',
-    title: 'مسیر استاندارد مشاغل کارگاهی و تولیدی',
+    title: 'مسیر استاندارد ارزیابی کارگاهی',
     unit: 'all',
     profileId: 'all',
     requiresSelfReview: true,
@@ -481,7 +479,7 @@ export const DEFAULT_ROUTE_RULES: EvaluationRouteRule[] = [
   },
   {
     id: 'route-fast-track',
-    title: 'مسیر سریع پرسنل موقت یا آزمایشی',
+    title: 'مسیر سریع سرپرستی',
     unit: 'all',
     requiresSelfReview: false,
     requiresSupervisorReview: true,
@@ -492,11 +490,11 @@ export const DEFAULT_ROUTE_RULES: EvaluationRouteRule[] = [
 ];
 
 export const GRADE_DETAILS = {
-  A: { label: 'برجسته و ستودنی', color: 'emerald', description: 'به‌طور مستمر فراتر از سطح انتظارات عمل کرده است.' },
-  B: { label: 'خوب و فراتر از انتظار', color: 'blue', description: 'بسیاری از اهداف را بالاتر از سطح انتظار محقق کرده است.' },
-  C: { label: 'کامل و مطابق انتظار', color: 'amber', description: 'اهداف تعریف‌شده را به‌طور کامل و با کیفیت پذیرفتنی انجام داده است.' },
-  D: { label: 'نیازمند بهبود', color: 'orange', description: 'برخی از اهداف کلیدی محقق نشده و نیاز به مربیگری مستقیم دارد.' },
-  E: { label: 'غیرقابل قبول', color: 'red', description: 'عملکرد بسیار پایین‌تر از استانداردهای پذیرفتنی است.' },
+  A: { label: 'فراتر از انتظار', color: 'emerald', description: 'عملکرد استثنایی و الگوی سایر همکاران.' },
+  B: { label: 'در حد انتظار کامل', color: 'blue', description: 'تحقق دقیق اهداف و شایستگی‌های شغلی.' },
+  C: { label: 'متوسط و قابل قبول', color: 'amber', description: 'نیازمند تمرکز بر بهبود برخی شاخص‌ها.' },
+  D: { label: 'نیازمند بهبود فوری', color: 'orange', description: 'نیازمند تدوین برنامه توسعه فردی دقیق.' },
+  E: { label: 'غیرقابل قبول', color: 'red', description: 'نیازمند مداخله جدی و برنامه بهبود PIP.' },
 };
 
 // ==========================================
@@ -527,7 +525,7 @@ export interface OKRGoal {
   department: string;
   ownerId: string;
   ownerName: string;
-  period: string; // e.g. "۱۴۰۵ - سه‌ماهه اول"
+  period: string; // e.g. "شش ماهه دوم ۱۴۰۴"
   category: 'strategic' | 'quality' | 'productivity' | 'safety' | 'innovation' | 'people';
   progress: number; // 0 to 100
   confidence: OKRConfidence;
@@ -558,7 +556,7 @@ export interface OneOnOneMeeting {
   empName: string;
   supervisorId: string;
   supervisorName: string;
-  scheduledDate: string; // e.g. "۱۴۰۵/۰۶/۱۵ ساعت ۱۰:۰۰"
+  scheduledDate: string; // e.g. "۱۴۰۴/۰۷/۱۵"
   period: string;
   status: 'scheduled' | 'completed' | 'cancelled';
   talkingPoints: TalkingPoint[];
@@ -576,7 +574,7 @@ export interface PraiseKudos {
   senderRole: string;
   receiverId: string;
   receiverName: string;
-  companyValue: 'کیفیت برتر' | 'کار تیمی و همدلی' | 'تعهد به ایمنی و HSE' | 'نوآوری و خلاقیت فنی' | 'مسئولیت‌پذیری و انضباط';
+  companyValue: 'کیفیت برتر' | 'نظم و انضباط' | 'ایمنی و HSE' | 'همدلی تیمی' | 'سرعت و بهره‌وری';
   badgeIcon: string;
   message: string;
   reactions: {
@@ -621,11 +619,11 @@ export interface PulseSurveyMetric {
 export type KickidlerLiveStatus = 'productive' | 'neutral' | 'unproductive' | 'idle' | 'offline';
 
 export interface TimeCategoryBreakdown {
-  productiveMinutes: number;   // زمان کار واقعی و ابزارهای مجاز
-  neutralMinutes: number;      // مکاتبات اداری، سرچ فنی
-  unproductiveMinutes: number; // شبکه‌های نامربوط، سایت‌های تفریحی، اتلاف وقت
-  idleMinutes: number;         // خواب سیستم، دور بودن از ایستگاه
-  totalWorkMinutes: number;    // کل زمان ثبت شده شیفت
+  productiveMinutes: number;   // زمان کار با نرم‌افزارهای مفید
+  neutralMinutes: number;      // وبگردی مجاز / اداری خنثی
+  unproductiveMinutes: number; // شبکه‌های اجتماعی / اتلاف وقت
+  idleMinutes: number;         // زمان قفل یا بدون ورودی
+  totalWorkMinutes: number;    // کل زمان شیفت کاری
 }
 
 export interface WorkdayActivityRecord {
@@ -634,7 +632,7 @@ export interface WorkdayActivityRecord {
   empName: string;
   empCode: string;
   unit: string;
-  date: string; // e.g. "۱۴۰۵/۰۶/۱۴"
+  date: string; // e.g. "۱۴۰۴/۰۷/۱۰"
   timeBreakdown: TimeCategoryBreakdown;
   productivityIndex: number; // 0 to 100% (Kickidler Efficiency Rate)
   keystrokesCount: number;
@@ -658,7 +656,7 @@ export interface LiveEmployeeActivity {
   activeDurationMinutes: number;
   todayProductivityRate: number; // %
   todayIdleMinutes: number;
-  intensityRate: 'high' | 'medium' | 'low'; // ضربان فعالیت فعلی
+  intensityRate: 'high' | 'medium' | 'low'; // شدت ورودی کیبورد و ماوس
   lastActiveTimestamp: string;
   avatarColor?: string;
 }
@@ -676,35 +674,4 @@ export interface KickidlerViolation {
   durationMinutes?: number;
   severity: 'critical' | 'high' | 'medium' | 'low';
   status: 'new' | 'acknowledged' | 'addressed';
-}
-
-
-
-export interface SupportTicket {
-  id: string;
-  senderId: string;
-  senderName: string;
-  subject: string;
-  message: string;
-  status: 'open' | 'in_progress' | 'closed';
-  createdAt: string;
-  updatedAt: string;
-  replies: { id: string; senderId: string; senderName: string; message: string; createdAt: string; isAdmin: boolean }[];
-}
-
-export interface RewardCoefficient {
-  jobFamily: string; // "all" for default, or specific family like "تولید"
-  baseAmount: number; // Base reward in IRR/Toman
-}
-
-export interface PerformanceMultiplier {
-  minScore: number;
-  maxScore: number;
-  multiplier: number;
-}
-
-export interface RewardConfig {
-  formula?: string;
-  coefficients: RewardCoefficient[];
-  multipliers: PerformanceMultiplier[];
 }

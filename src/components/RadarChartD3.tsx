@@ -33,7 +33,7 @@ export default function RadarChartD3({
   width = 380,
   height = 340,
   theme = 'dark',
-  title = 'نمودار عنکبوتی شایستگی‌های پنج‌گانه',
+  title = 'نمودار راداری شایستگی‌های پنج‌گانه',
   showTarget = true,
   showSelf = true,
   interactive = true,
@@ -66,22 +66,18 @@ export default function RadarChartD3({
 
     const numAxes = data.length;
     const angleSlice = (Math.PI * 2) / numAxes;
-    const levels = 5; // 1 to 5 scale
+    const levels = 5;
     const maxValue = 5;
-
     const rScale = d3.scaleLinear().range([0, radius]).domain([0, maxValue]);
 
-    // Theme Colors
     const isDark = theme === 'dark';
     const gridColor = isDark ? '#334155' : '#cbd5e1';
     const gridLabelColor = isDark ? '#64748b' : '#94a3b8';
     const axisLabelColor = isDark ? '#e2e8f0' : '#1e293b';
 
-    // 1. Draw concentric background grid levels
     for (let level = 1; level <= levels; level++) {
       const levelRadius = (radius / levels) * level;
 
-      // Circular/Polygon Grid
       const levelData: [number, number][] = data.map((_, i) => {
         const angle = i * angleSlice - Math.PI / 2;
         return [
@@ -91,7 +87,6 @@ export default function RadarChartD3({
       });
 
       const lineGenerator = d3.line<[number, number]>().curve(d3.curveLinearClosed);
-
       g.append('path')
         .attr('d', lineGenerator(levelData) || '')
         .attr('fill', level % 2 === 0 ? (isDark ? 'rgba(30, 41, 59, 0.4)' : 'rgba(241, 245, 249, 0.6)') : 'none')
@@ -99,7 +94,6 @@ export default function RadarChartD3({
         .attr('stroke-width', level === levels ? 1.5 : 0.8)
         .attr('stroke-dasharray', level === levels ? 'none' : '2,2');
 
-      // Grid Level Numeric Label
       g.append('text')
         .attr('x', 4)
         .attr('y', -levelRadius)
@@ -109,7 +103,6 @@ export default function RadarChartD3({
         .text(level.toString());
     }
 
-    // 2. Draw Radial Axes & Dimension Labels
     const axis = g.selectAll('.axis')
       .data(data)
       .enter()
@@ -124,7 +117,6 @@ export default function RadarChartD3({
       .attr('stroke', gridColor)
       .attr('stroke-width', 1);
 
-    // Dimension Labels
     axis.append('text')
       .attr('class', 'legend')
       .attr('text-anchor', (_, i) => {
@@ -145,13 +137,11 @@ export default function RadarChartD3({
       .attr('fill', axisLabelColor)
       .text(d => `${d.key}: ${d.shortLabel || d.label}`);
 
-    // Line generator for radial shapes
     const radarLine = d3.lineRadial<number>()
       .radius(d => rScale(d))
       .angle((_, i) => i * angleSlice)
       .curve(d3.curveLinearClosed);
 
-    // 3. TARGET BASELINE POLYGON
     if (showTarget) {
       const targetValues = data.map(d => d.target || 4.5);
       g.append('path')
@@ -163,7 +153,6 @@ export default function RadarChartD3({
         .attr('stroke-dasharray', '4,4');
     }
 
-    // 4. SELF-ASSESSMENT POLYGON
     const hasSelfData = data.some(d => typeof d.self === 'number' && d.self > 0);
     if (showSelf && hasSelfData) {
       const selfValues = data.map(d => d.self || 0);
@@ -175,7 +164,6 @@ export default function RadarChartD3({
         .attr('stroke-width', 2);
     }
 
-    // 5. ACTUAL PERFORMANCE POLYGON (Primary)
     const actualValues = data.map(d => Math.max(0, Math.min(5, d.actual)));
     const actualPath = g.append('path')
       .datum(actualValues)
@@ -184,17 +172,14 @@ export default function RadarChartD3({
       .attr('stroke', '#14b8a6')
       .attr('stroke-width', 2.5);
 
-    // Filter/Glow on Actual Line
     actualPath.style('filter', 'drop-shadow(0 0 6px rgba(20, 184, 166, 0.4))');
 
-    // 6. INTERACTIVE BULLET NODES
     data.forEach((dim, i) => {
       const angle = i * angleSlice - Math.PI / 2;
       const actualVal = Math.max(0, Math.min(5, dim.actual));
       const actualX = rScale(actualVal) * Math.cos(angle);
       const actualY = rScale(actualVal) * Math.sin(angle);
 
-      // Actual Node Dot
       const circle = g.append('circle')
         .attr('cx', actualX)
         .attr('cy', actualY)
@@ -221,17 +206,14 @@ export default function RadarChartD3({
           });
       }
     });
-
   }, [data, width, height, theme, showTarget, showSelf, interactive]);
 
-  // Calculate Overall Balance/Average Score
   const avgScore = data.length > 0 
     ? (data.reduce((acc, curr) => acc + (curr.actual || 0), 0) / data.length).toFixed(2)
     : '0';
 
   return (
     <div className={`relative flex flex-col items-center select-none ${className}`} dir="rtl">
-      {/* Title & Stats Header */}
       {title && (
         <div className="w-full flex items-center justify-between px-2 mb-2">
           <div className="flex items-center gap-2">
@@ -239,13 +221,12 @@ export default function RadarChartD3({
             <h4 className="text-xs font-black tracking-wide text-slate-200">{title}</h4>
           </div>
           <div className="flex items-center gap-1.5 bg-teal-500/10 border border-teal-500/30 px-2 py-0.5 rounded-full text-[10px] font-bold text-teal-400">
-            <span>میانگین شایستگی:</span>
+            <span>میانگین توازن:</span>
             <span className="font-mono text-xs">{avgScore} / ۵</span>
           </div>
         </div>
       )}
 
-      {/* SVG Stage */}
       <div className="relative overflow-visible">
         <svg
           ref={svgRef}
@@ -255,7 +236,6 @@ export default function RadarChartD3({
           className="overflow-visible"
         />
 
-        {/* Floating Tooltip */}
         {hoveredPoint && (
           <div
             className="absolute z-30 pointer-events-none transform -translate-x-1/2 -translate-y-full mb-3 bg-slate-900/95 border border-teal-500/50 shadow-2xl rounded-2xl p-2.5 text-right backdrop-blur-md min-w-[150px] animate-in fade-in zoom-in-95 duration-150"
@@ -286,7 +266,7 @@ export default function RadarChartD3({
                 </div>
               )}
               <div className="flex justify-between text-emerald-400 font-semibold pt-0.5 border-t border-slate-800/80">
-                <span>تحقق شایستگی:</span>
+                <span>انطباق:</span>
                 <span>{Math.round((hoveredPoint.dimension.actual / 5) * 100)}%</span>
               </div>
             </div>
@@ -294,7 +274,6 @@ export default function RadarChartD3({
         )}
       </div>
 
-      {/* Legend Footer */}
       <div className="flex flex-wrap items-center justify-center gap-3 mt-2 text-[10px] font-semibold text-slate-400">
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-1.5 rounded-sm bg-teal-500" />
@@ -303,13 +282,13 @@ export default function RadarChartD3({
         {showSelf && (
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-1.5 rounded-sm bg-blue-500" />
-            <span>خودارزیابی همکار</span>
+            <span>خودارزیابی کارمند</span>
           </div>
         )}
         {showTarget && (
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 border-b border-dashed border-slate-400" />
-            <span>معیار استاندارد (هدف)</span>
+            <span>هدف استاندارد (مبنا)</span>
           </div>
         )}
       </div>

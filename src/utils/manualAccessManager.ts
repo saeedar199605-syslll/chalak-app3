@@ -18,7 +18,7 @@ export const DEFAULT_MANUAL_ACCESS_POLICY: ManualAccessPolicy = {
   deniedUserIds: [],
   allowedUnits: [],
   showWatermark: true,
-  lastUpdated: '۱۴۰۳/۰۶/۱۵',
+  lastUpdated: '۱۴۰۳/۰۶/۲۵',
   updatedBy: 'مدیر ارشد سیستم (admin)'
 };
 
@@ -34,7 +34,6 @@ export function getManualAccessPolicy(): ManualAccessPolicy {
         ? parsed.allowedRolesToDownload 
         : ['admin', 'supervisor', 'employee'];
 
-      // Admin always has view and download access
       if (!allowedRolesToView.includes('admin')) allowedRolesToView.push('admin');
       if (!allowedRolesToDownload.includes('admin')) allowedRolesToDownload.push('admin');
 
@@ -45,7 +44,7 @@ export function getManualAccessPolicy(): ManualAccessPolicy {
         deniedUserIds: Array.isArray(parsed.deniedUserIds) ? parsed.deniedUserIds : [],
         allowedUnits: Array.isArray(parsed.allowedUnits) ? parsed.allowedUnits : [],
         showWatermark: parsed.showWatermark !== false,
-        lastUpdated: parsed.lastUpdated || '۱۴۰۳/۰۶/۱۵',
+        lastUpdated: parsed.lastUpdated || '۱۴۰۳/۰۶/۲۵',
         updatedBy: parsed.updatedBy || 'مدیر ارشد سیستم (admin)'
       };
     }
@@ -76,17 +75,14 @@ export function canUserViewManual(user: Employee | null, policy?: ManualAccessPo
 
   const currentPolicy = policy || getManualAccessPolicy();
 
-  // Explicit individual blacklist
   if (currentPolicy.deniedUserIds && currentPolicy.deniedUserIds.includes(user.id)) {
     return false;
   }
 
-  // Explicit individual whitelist
   if (currentPolicy.allowedUserIds && currentPolicy.allowedUserIds.includes(user.id)) {
     return true;
   }
 
-  // Department filter (if any specific units are configured)
   if (currentPolicy.allowedUnits && currentPolicy.allowedUnits.length > 0) {
     if (!currentPolicy.allowedUnits.includes(user.unit)) {
       return false;
@@ -99,12 +95,9 @@ export function canUserViewManual(user: Employee | null, policy?: ManualAccessPo
 export function canUserDownloadManual(user: Employee | null, policy?: ManualAccessPolicy): boolean {
   if (!user) return false;
   const currentPolicy = policy || getManualAccessPolicy();
-
   if (!canUserViewManual(user, currentPolicy)) {
     return false;
   }
-
   if (user.role === 'admin' || user.username === 'admin') return true;
-
   return currentPolicy.allowedRolesToDownload.includes(user.role);
 }

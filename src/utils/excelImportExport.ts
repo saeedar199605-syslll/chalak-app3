@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { downloadWorkbook, readWorkbookRows } from './excelWorkbook';
+import * as XLSX from 'xlsx';
 import { 
   KasraAttendanceRecord, 
   MISProductionRecord, 
@@ -15,9 +15,6 @@ import {
   DynamicExcelRowRecord
 } from '../types';
 
-/**
- * Calculates a 1-5 Performance Rating for Attendance & Punctuality from Kasra Data
- */
 export function calculateKasraScore(
   delayMinutes: number,
   absenceDays: number,
@@ -30,9 +27,6 @@ export function calculateKasraScore(
   return 5;
 }
 
-/**
- * Calculates a 1-5 Performance Rating for MIS Production & Quality Output
- */
 export function calculateMISScore(
   efficiencyRate: number,
   scrapRate: number,
@@ -45,21 +39,18 @@ export function calculateMISScore(
   return 5;
 }
 
-/**
- * Generates and downloads standard Excel template for Kasra Attendance System
- */
-export function downloadKasraExcelTemplate(employees: Employee[], period: string = 'نیمه اول ۱۴۰۵') {
+export function downloadKasraExcelTemplate(employees: Employee[], period: string = 'دوره بهار ۱۴۰۳') {
   const headers = [
     'کد پرسنلی (Staff Code)',
     'نام و نام خانوادگی',
     'دوره ارزیابی (Period)',
-    'کل ساعات کارکرد موظفی',
-    'مجموع تاخیر و تعجیل (دقیقه)',
-    'غیبت غیرموجه (روز)',
-    'مرخصی استحقاقی/استعلاجی (روز)',
-    'ساعات اضافه‌کاری',
+    'ساعت کار موظف',
+    'دقایق تاخیر ورود',
+    'روزهای غیبت غیرمجاز',
+    'روزهای مرخصی',
+    'ساعات اضافه کار',
     'تعداد تذکرات انضباطی',
-    'توضیحات سامانه کسری'
+    'توضیحات تکمیلی کسری'
   ];
 
   const sampleRows = employees.slice(0, 15).map((emp, idx) => [
@@ -72,13 +63,13 @@ export function downloadKasraExcelTemplate(employees: Employee[], period: string
     idx % 2 === 0 ? 3 : 2,
     idx === 0 ? 45 : 30,
     0,
-    'تاییدیه حضور شیفت بدون انحراف'
+    'حضور منظم'
   ]);
 
   if (sampleRows.length === 0) {
     sampleRows.push([
       'EMP-1001',
-      'کارمند نمونه',
+      'علی حسینی',
       period,
       960,
       15,
@@ -86,35 +77,40 @@ export function downloadKasraExcelTemplate(employees: Employee[], period: string
       3,
       40,
       0,
-      'نمونه ثبت استاندارد سامانه کسری'
+      'نمونه رکورد حضور و غیاب'
     ]);
   }
 
-  void downloadWorkbook(
-    `نمونه_اکسل_کسری_اصفهان_چالاک_${period.replace(/\s+/g, '_')}.xlsx`,
-    [{
-      name: 'داده_های_حضور_غیاب_کسری',
-      rows: [headers, ...sampleRows],
-      widths: [22, 25, 18, 20, 24, 18, 24, 18, 20, 30]
-    }]
-  );
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+  ws['!cols'] = [
+    { wch: 22 },
+    { wch: 25 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 24 },
+    { wch: 18 },
+    { wch: 24 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 30 }
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'تردد_کسری');
+  XLSX.writeFile(wb, `قالب_ورود_داده_کسری_${period.replace(/\s+/g, '_')}.xlsx`);
 }
 
-/**
- * Generates and downloads standard Excel template for MIS Production & Quality System
- */
-export function downloadMISExcelTemplate(employees: Employee[], period: string = 'نیمه اول ۱۴۰۵') {
+export function downloadMISExcelTemplate(employees: Employee[], period: string = 'دوره بهار ۱۴۰۳') {
   const headers = [
     'کد پرسنلی (Staff Code)',
     'نام و نام خانوادگی',
     'دوره ارزیابی (Period)',
-    'تعداد/میزان تولید واقعی',
-    'تارگت و برنامه مصوب تولید',
-    'درصد راندمان تولید (٪)',
-    'نرخ ضایعات (٪)',
-    'ساعات توقف خط (ساعت)',
-    'امتیاز کنترل کیفیت QC (٪)',
-    'توضیحات واحد MIS'
+    'تیراژ تولید واقعی',
+    'تیراژ هدف برنامه‌ریزی‌شده',
+    'درصد راندمان تولید',
+    'درصد ضایعات خط',
+    'ساعت توقف ناخواسته',
+    'نمره کیفی QC (درصد)',
+    'توضیحات داده‌های MIS'
   ];
 
   const sampleRows = employees.slice(0, 15).map((emp, idx) => [
@@ -127,13 +123,13 @@ export function downloadMISExcelTemplate(employees: Employee[], period: string =
     idx === 0 ? 1.1 : idx === 1 ? 2.4 : 1.5,
     idx === 0 ? 3.5 : 5.0,
     idx === 0 ? 99.2 : 96.5,
-    'تحقق کامل برنامه شیفت خط تولید'
+    'عملکرد روتین شیفت ۱'
   ]);
 
   if (sampleRows.length === 0) {
     sampleRows.push([
       'EMP-1001',
-      'کارمند نمونه',
+      'علی حسینی',
       period,
       12500,
       12000,
@@ -141,25 +137,28 @@ export function downloadMISExcelTemplate(employees: Employee[], period: string =
       1.1,
       3.5,
       99.0,
-      'نمونه ثبت خروجی سیستم تولید MIS'
+      'نمونه داده‌های خط تولید MIS'
     ]);
   }
 
-  void downloadWorkbook(
-    `نمونه_اکسل_MIS_تولید_اصفهان_چالاک_${period.replace(/\s+/g, '_')}.xlsx`,
-    [{
-      name: 'داده_های_تولید_MIS',
-      rows: [headers, ...sampleRows],
-      widths: [22, 25, 18, 22, 22, 20, 16, 20, 24, 30]
-    }]
-  );
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+  ws['!cols'] = [
+    { wch: 22 },
+    { wch: 25 },
+    { wch: 18 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 20 },
+    { wch: 16 },
+    { wch: 20 },
+    { wch: 24 },
+    { wch: 30 }
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'تولید_MIS');
+  XLSX.writeFile(wb, `قالب_داده‌های_تولید_MIS_اصفهان_چالاک_${period.replace(/\s+/g, '_')}.xlsx`);
 }
 
-/**
- * Generates and downloads a COMPLETELY DYNAMIC Excel Template
- * customized with any selected criteria from the criteria bank,
- * staff profiles, units, and custom periods.
- */
 export function downloadDynamicCriteriaExcelTemplate({
   employees,
   criteria,
@@ -167,7 +166,7 @@ export function downloadDynamicCriteriaExcelTemplate({
   selectedCriteriaIds,
   selectedProfileId,
   selectedUnit,
-  period = 'نیمه اول ۱۴۰۵',
+  period = 'دوره بهار ۱۴۰۳',
   includeDocColumns = true,
   existingEvaluations = []
 }: {
@@ -181,7 +180,6 @@ export function downloadDynamicCriteriaExcelTemplate({
   includeDocColumns?: boolean;
   existingEvaluations?: Evaluation[];
 }) {
-  // Filter employees
   let filteredEmployees = [...employees];
   if (selectedProfileId && selectedProfileId !== 'all') {
     filteredEmployees = filteredEmployees.filter(e => e.profileId === selectedProfileId);
@@ -190,47 +188,41 @@ export function downloadDynamicCriteriaExcelTemplate({
     filteredEmployees = filteredEmployees.filter(e => e.unit === selectedUnit);
   }
 
-  // Selected criteria objects
   const activeCriteria = criteria.filter(c => selectedCriteriaIds.includes(c.id));
 
-  // Build Headers
   const headers = [
     'کد پرسنلی (Staff Code)',
     'نام و نام خانوادگی',
-    'عنوان شغلی',
+    'عنوان شغل',
     'واحد سازمانی',
     'دوره ارزیابی (Period)'
   ];
 
-  // Add each criterion column
   activeCriteria.forEach(crit => {
-    headers.push(`[${crit.code}] ${crit.name} (نمره ۱-۵)`);
+    headers.push(`[${crit.code}] ${crit.name} (نمره ۱ تا ۵)`);
     if (includeDocColumns) {
       headers.push(`شواهد و مستندات [${crit.code}]`);
     }
   });
 
-  headers.push('توضیحات و بازخورد کلی سرپرست');
+  headers.push('یادداشت و گفتگوی مربیگری');
 
-  // Build Rows
   const rows: any[][] = [];
-
   filteredEmployees.forEach(emp => {
     const prof = profiles.find(p => p.id === emp.profileId);
     const existingEval = existingEvaluations.find(ev => ev.empId === emp.id && ev.period === period);
-
+    
     const row: any[] = [
       emp.code,
       emp.name,
-      prof?.title || 'نامشخص',
-      emp.unit || 'ستاد',
+      prof?.title || 'عمومی',
+      emp.unit || 'خط تولید',
       period
     ];
 
     activeCriteria.forEach(crit => {
-      // Find score if exists
       const existingScore = existingEval?.scores?.find(s => s.cid === crit.id);
-      row.push(existingScore?.value || 3); // Default score 3
+      row.push(existingScore?.value || 3);
       if (includeDocColumns) {
         row.push(existingScore?.doc || '');
       }
@@ -243,46 +235,56 @@ export function downloadDynamicCriteriaExcelTemplate({
   if (rows.length === 0) {
     const defaultRow: any[] = [
       'EMP-1001',
-      'کارمند نمونه',
-      'کارشناس تولید و فرآیند',
-      'واحد سالن پرس و برش',
+      'علی حسینی',
+      'اپراتور ارشد',
+      'خط تولید ۱',
       period
     ];
     activeCriteria.forEach(() => {
       defaultRow.push(4);
-      if (includeDocColumns) defaultRow.push('مستندات عملکردی استاندارد');
+      if (includeDocColumns) defaultRow.push('رعایت کامل دستورالعمل');
     });
-    defaultRow.push('ارزیابی عملکرد دوره‌ای ثبت شده است');
+    defaultRow.push('عملکرد نمونه');
     rows.push(defaultRow);
   }
 
-  const matrixWidths = [22, 25, 24, 22, 18];
-  activeCriteria.forEach(() => {
-    matrixWidths.push(30);
-    if (includeDocColumns) matrixWidths.push(32);
-  });
-  matrixWidths.push(35);
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
 
-  // Add guide sheet
-  const guideHeaders = ['کد شاخص', 'نام شاخص', 'دسته‌بندی', 'نحوه امتیازدهی (۱ تا ۵)', 'منبع داده سازمانی'];
+  ws['!cols'] = [
+    { wch: 22 },
+    { wch: 25 },
+    { wch: 24 },
+    { wch: 22 },
+    { wch: 18 }
+  ];
+
+  activeCriteria.forEach(() => {
+    ws['!cols']?.push({ wch: 30 });
+    if (includeDocColumns) {
+      ws['!cols']?.push({ wch: 32 });
+    }
+  });
+  ws['!cols']?.push({ wch: 35 });
+
+  const guideHeaders = ['کد شاخص', 'عنوان شاخص', 'دسته شایستگی', 'تعریف عملیاتی (راهنما)', 'منبع داده'];
   const guideRows = activeCriteria.map(c => [
     c.code,
     c.name,
-    c.cat === 'K' ? 'نتایج کمی KPI' : c.cat === 'Q' ? 'کیفیت' : c.cat === 'B' ? 'رفتاری' : c.cat === 'S' ? 'ایمنی HSE' : 'مدیریتی',
-    '۱: غیرقابل قبول | ۲: نیازمند بهبود | ۳: مطابق انتظار | ۴: بالاتر از انتظار | ۵: فراتر از انتظار',
-    c.source || 'ثبت ارزیاب مستقیم'
+    c.cat === 'K' ? 'عملکرد کمی KPI' : c.cat === 'Q' ? 'شایستگی کیفی' : c.cat === 'B' ? 'شایستگی رفتاری' : c.cat === 'S' ? 'ایمنی و HSE' : 'رهبری و تیمی',
+    c.def,
+    c.source || 'سرپرست مستقیم'
   ]);
-  const fileName = `قالب_اکسل_ارزیابی_شاخص_ها_${period.replace(/\s+/g, '_')}.xlsx`;
-  void downloadWorkbook(fileName, [
-    { name: 'ماتریس_شاخص_ها', rows: [headers, ...rows], widths: matrixWidths },
-    { name: 'راهنمای_شاخص_ها', rows: [guideHeaders, ...guideRows], widths: [15, 25, 18, 60, 25] }
-  ]);
+  const wsGuide = XLSX.utils.aoa_to_sheet([guideHeaders, ...guideRows]);
+  wsGuide['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 18 }, { wch: 60 }, { wch: 25 }];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'ارزیابی_عملکرد_چالاک');
+  XLSX.utils.book_append_sheet(wb, wsGuide, 'راهنمای_شاخص‌ها');
+
+  const fileName = `شیت_ارزیابی_سفارشی_${period.replace(/\s+/g, '_')}.xlsx`;
+  XLSX.writeFile(wb, fileName);
 }
 
-/**
- * Universal Excel Reader: Parses any Excel file, detects all sheets and columns,
- * and auto-deduces intelligent mappings.
- */
 export async function parseUniversalExcelFile(
   file: File,
   existingEmployees: Employee[],
@@ -294,45 +296,45 @@ export async function parseUniversalExcelFile(
   rawRows: any[][];
   suggestedMappings: DynamicColumnMapping[];
 }> {
-  try {
-        const workbook = await readWorkbookRows(file);
-        const sheets = workbook.sheets;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheets = workbook.SheetNames;
         const activeSheet = sheets[0] || 'Sheet1';
-        const rawJson = workbook.rowsBySheet[activeSheet] || [];
+        const worksheet = workbook.Sheets[activeSheet];
+        const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
         if (!rawJson || rawJson.length < 1) {
-          return {
+          return resolve({
             sheets,
             activeSheet,
             headers: [],
             rawRows: [],
             suggestedMappings: []
-          };
+          });
         }
 
         const headers: string[] = (rawJson[0] || []).map((h: any) => String(h || '').trim());
         const rawRows = rawJson.slice(1);
 
-        // Deduce Column Mappings intelligently
         const suggestedMappings: DynamicColumnMapping[] = headers.map((col) => {
           const colLower = col.toLowerCase();
 
-          // 1. Staff Code
-          if (['کد پرسنلی', 'code', 'staff', 'شناسه', 'کد', 'پرسنلی', 'employee_id'].some(k => colLower.includes(k))) {
+          if (['کد پرسنلی', 'code', 'staff', 'شماره پرسنلی', 'پرسنلی', 'کد', 'employee_id'].some(k => colLower.includes(k))) {
             return { excelColumn: col, targetType: 'staffCode' };
           }
 
-          // 2. Staff Name
-          if (['نام', 'name', 'نام و نام خانوادگی', 'پرسنل', 'نام کارمند'].some(k => colLower.includes(k)) && !colLower.includes('کد')) {
+          if (['نام و نام خانوادگی', 'name', 'نام پرسنل', 'کارمند', 'نام'].some(k => colLower.includes(k)) && !colLower.includes('شغل')) {
             return { excelColumn: col, targetType: 'staffName' };
           }
 
-          // 3. Period
-          if (['دوره', 'period', 'نیمسال', 'فصل', 'دوره ارزیابی'].some(k => colLower.includes(k))) {
+          if (['دوره ارزیابی', 'period', 'دوره', 'فصل', 'نیمسال'].some(k => colLower.includes(k))) {
             return { excelColumn: col, targetType: 'period' };
           }
 
-          // 4. Match Criterion by Code or Name
           for (const crit of criteria) {
             if (
               colLower.includes(crit.code.toLowerCase()) ||
@@ -347,70 +349,67 @@ export async function parseUniversalExcelFile(
             }
           }
 
-          // 5. Kasra Attendance Metrics
-          if (colLower.includes('تاخیر') || colLower.includes('تعجیل') || colLower.includes('delay')) {
+          if (colLower.includes('تاخیر') || colLower.includes('دقیقه تاخیر') || colLower.includes('delay')) {
             return { excelColumn: col, targetType: 'attendance_metric', targetMetricKey: 'delayMinutes' };
           }
           if (colLower.includes('غیبت') || colLower.includes('absence')) {
             return { excelColumn: col, targetType: 'attendance_metric', targetMetricKey: 'absenceDays' };
           }
-          if (colLower.includes('تذکر') || colLower.includes('انضباط') || colLower.includes('infraction')) {
+          if (colLower.includes('انضباطی') || colLower.includes('تذکر') || colLower.includes('infraction')) {
             return { excelColumn: col, targetType: 'attendance_metric', targetMetricKey: 'disciplineInfractions' };
           }
-          if (colLower.includes('کارکرد') || colLower.includes('موظفی') || colLower.includes('workhours')) {
+          if (colLower.includes('ساعت کار') || colLower.includes('موظف') || colLower.includes('workhours')) {
             return { excelColumn: col, targetType: 'attendance_metric', targetMetricKey: 'totalWorkHours' };
           }
-          if (colLower.includes('اضافه') || colLower.includes('overtime')) {
+          if (colLower.includes('اضافه کار') || colLower.includes('overtime')) {
             return { excelColumn: col, targetType: 'attendance_metric', targetMetricKey: 'overtimeHours' };
           }
           if (colLower.includes('مرخصی') || colLower.includes('leave')) {
             return { excelColumn: col, targetType: 'attendance_metric', targetMetricKey: 'leaveDays' };
           }
 
-          // 6. MIS Production Metrics
-          if (colLower.includes('راندمان') || colLower.includes('بهره‌وری') || colLower.includes('efficiency')) {
+          if (colLower.includes('راندمان') || colLower.includes('بهره وری') || colLower.includes('efficiency')) {
             return { excelColumn: col, targetType: 'mis_metric', targetMetricKey: 'efficiencyRate' };
           }
           if (colLower.includes('ضایعات') || colLower.includes('scrap')) {
             return { excelColumn: col, targetType: 'mis_metric', targetMetricKey: 'scrapRate' };
           }
-          if (colLower.includes('تولید واقعی') || (colLower.includes('تولید') && !colLower.includes('راندمان') && !colLower.includes('برنامه'))) {
+          if (colLower.includes('تولید واقعی') || (colLower.includes('تولید') && !colLower.includes('هدف') && !colLower.includes('برنامه'))) {
             return { excelColumn: col, targetType: 'mis_metric', targetMetricKey: 'producedUnits' };
           }
-          if (colLower.includes('تارگت') || colLower.includes('برنامه') || colLower.includes('target')) {
+          if (colLower.includes('برنامه تولید') || colLower.includes('هدف') || colLower.includes('target')) {
             return { excelColumn: col, targetType: 'mis_metric', targetMetricKey: 'targetUnits' };
           }
-          if (colLower.includes('کیفیت') || colLower.includes('qc') || colLower.includes('کیفی')) {
+          if (colLower.includes('نمره کیفی') || colLower.includes('qc') || colLower.includes('کیفیت')) {
             return { excelColumn: col, targetType: 'mis_metric', targetMetricKey: 'qualityScore' };
           }
           if (colLower.includes('توقف') || colLower.includes('downtime')) {
             return { excelColumn: col, targetType: 'mis_metric', targetMetricKey: 'downtimeHours' };
           }
 
-          // 7. General Note
-          if (colLower.includes('توضیح') || colLower.includes('ملاحظات') || colLower.includes('note') || colLower.includes('بازخورد')) {
+          if (colLower.includes('یادداشت') || colLower.includes('توضیح') || colLower.includes('note') || colLower.includes('مربیگری')) {
             return { excelColumn: col, targetType: 'note' };
           }
 
           return { excelColumn: col, targetType: 'ignore' };
         });
 
-        return {
+        resolve({
           sheets,
           activeSheet,
           headers,
           rawRows,
           suggestedMappings
-        };
-  } catch (err: any) {
-    throw new Error('خطا در بارگذاری و تحلیل فایل اکسل: ' + err.message);
-  }
+        });
+      } catch (err: any) {
+        reject(new Error('خطا در خواندن فایل اکسل: ' + err.message));
+      }
+    };
+    reader.onerror = () => reject(new Error('خطا در بارگذاری فایل اکسل'));
+    reader.readAsArrayBuffer(file);
+  });
 }
 
-/**
- * Recalculates all scores and row records in REAL TIME whenever
- * column mappings change or a manual edit occurs.
- */
 export function recalculateDynamicRows({
   rawRows,
   headers,
@@ -435,7 +434,6 @@ export function recalculateDynamicRows({
   const warnings: string[] = [];
   let matchedEmployeesCount = 0;
 
-  // Map header index to its mapping rule
   const colIndexMap = headers.map((col) => {
     return mappings.find(m => m.excelColumn === col) || { excelColumn: col, targetType: 'ignore' as const };
   });
@@ -445,7 +443,7 @@ export function recalculateDynamicRows({
 
     let empCode = '';
     let empName = '';
-    let period = 'نیمه اول ۱۴۰۵';
+    let period = 'دوره بهار ۱۴۰۳';
     const scores: Record<string, number> = {};
     const docs: Record<string, string> = {};
     const metrics: DynamicExcelRowRecord['metrics'] = {};
@@ -454,7 +452,6 @@ export function recalculateDynamicRows({
     colIndexMap.forEach((rule, colIdx) => {
       const cellVal = row[colIdx];
       if (cellVal === undefined || cellVal === null) return;
-
       const strVal = String(cellVal).trim();
 
       switch (rule.targetType) {
@@ -470,11 +467,9 @@ export function recalculateDynamicRows({
         case 'criterion':
           if (rule.targetCriterionId) {
             let numVal = Number(strVal);
-            // If text contains a score or description
             if (isNaN(numVal)) {
               if (strVal.length > 0) docs[rule.targetCriterionId] = strVal;
             } else {
-              // Bound between 1 and 5
               if (numVal < 1) numVal = 1;
               if (numVal > 5) numVal = 5;
               scores[rule.targetCriterionId] = numVal;
@@ -489,7 +484,6 @@ export function recalculateDynamicRows({
         case 'mis_metric':
           if (rule.targetMetricKey) {
             let num = Number(strVal) || 0;
-            // Scale percentages if entered as decimals (e.g. 1.05 -> 105)
             if ((rule.targetMetricKey === 'efficiencyRate' || rule.targetMetricKey === 'qualityScore') && num > 0 && num < 2) {
               num = num * 100;
             }
@@ -504,7 +498,6 @@ export function recalculateDynamicRows({
 
     if (!empCode && !empName) return;
 
-    // Match with employee database
     const matchedEmp = employees.find(
       e => (empCode && e.code.toUpperCase() === empCode) ||
            (empCode && e.username.toLowerCase() === empCode.toLowerCase()) ||
@@ -514,37 +507,32 @@ export function recalculateDynamicRows({
     if (matchedEmp) {
       matchedEmployeesCount++;
     } else {
-      warnings.push(`ردیف ${rIdx + 2}: همکار با کد «${empCode || 'نامشخص'}» در پایگاه پرسنلی یافت نشد.`);
+      warnings.push(`ردیف ${rIdx + 2}: کارمندی با مشخصات ${empCode || ''} ${empName || ''} در سیستم پیدا نشد.`);
     }
 
-    // If attendance metrics exist, calculate automatic behavioral/attendance score
     if (metrics.delayMinutes !== undefined || metrics.absenceDays !== undefined || metrics.disciplineInfractions !== undefined) {
       const calculatedAttScore = calculateKasraScore(
         metrics.delayMinutes || 0,
         metrics.absenceDays || 0,
         metrics.disciplineInfractions || 0
       );
-
-      // Map to behavioral or attendance criterion
-      const attCriterion = criteria.find(c => c.cat === 'B' || c.cat === 'S' || c.name.includes('حضور') || c.name.includes('انضباط'));
+      const attCriterion = criteria.find(c => c.cat === 'B' || c.cat === 'S' || c.name.includes('نظم') || c.name.includes('تردد'));
       if (attCriterion && scores[attCriterion.id] === undefined) {
         scores[attCriterion.id] = calculatedAttScore;
-        docs[attCriterion.id] = `محاسبه خودکار کسری: تاخیر ${metrics.delayMinutes || 0} دقیقه، غیبت ${metrics.absenceDays || 0} روز، تذکرات ${metrics.disciplineInfractions || 0}`;
+        docs[attCriterion.id] = `حضور و غیاب: ${metrics.delayMinutes || 0} دقیقه تاخیر، ${metrics.absenceDays || 0} روز غیبت، ${metrics.disciplineInfractions || 0} تذکر انضباطی`;
       }
     }
 
-    // If MIS production metrics exist, calculate automatic KPI/quality score
     if (metrics.efficiencyRate !== undefined || metrics.scrapRate !== undefined || metrics.qualityScore !== undefined) {
       const calculatedKpiScore = calculateMISScore(
         metrics.efficiencyRate || 100,
         metrics.scrapRate || 1.5,
         metrics.qualityScore || 98
       );
-
-      const kpiCriterion = criteria.find(c => c.cat === 'K' || c.cat === 'Q' || c.name.includes('تولید') || c.name.includes('راندمان') || c.name.includes('ضایعات'));
+      const kpiCriterion = criteria.find(c => c.cat === 'K' || c.cat === 'Q' || c.name.includes('تولید') || c.name.includes('راندمان') || c.name.includes('OEE'));
       if (kpiCriterion && scores[kpiCriterion.id] === undefined) {
         scores[kpiCriterion.id] = calculatedKpiScore;
-        docs[kpiCriterion.id] = `محاسبه خودکار MIS: راندمان ${metrics.efficiencyRate || 100}٪، ضایعات ${metrics.scrapRate || 1.5}٪، کیفیت ${metrics.qualityScore || 98}٪`;
+        docs[kpiCriterion.id] = `سیستم MIS: راندمان ${metrics.efficiencyRate || 100}٪، ضایعات ${metrics.scrapRate || 1.5}٪، کیفیت ${metrics.qualityScore || 98}٪`;
       }
     }
 
@@ -555,14 +543,14 @@ export function recalculateDynamicRows({
       empCode: matchedEmp ? matchedEmp.code : empCode,
       empName: matchedEmp ? matchedEmp.name : empName,
       period,
-      jobTitle: empProfile?.title || 'تعریف نشده',
-      unit: matchedEmp?.unit || 'مرکزی',
+      jobTitle: empProfile?.title || 'عمومی',
+      unit: matchedEmp?.unit || 'خط تولید',
       scores,
       docs,
       metrics,
       overallNote,
       isValid: !!matchedEmp,
-      validationError: matchedEmp ? undefined : 'پرسنل در سیستم ثبت نشده است'
+      validationError: matchedEmp ? undefined : 'کارمند در پایگاه داده پرسنلی یافت نشد.'
     });
   });
 
@@ -574,24 +562,22 @@ export function recalculateDynamicRows({
   };
 }
 
-/**
- * Parses an Excel file uploaded by the user for Kasra Attendance (Legacy / Direct)
- */
 export async function parseKasraExcelFile(
   file: File,
   existingEmployees: Employee[]
 ): Promise<{ records: KasraAttendanceRecord[]; errors: string[]; matchedCount: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
-    reader.onload = async () => {
+    reader.onload = (e) => {
       try {
-        const workbook = await readWorkbookRows(file);
-        const firstSheetName = workbook.sheets[0];
-        const rows = workbook.rowsBySheet[firstSheetName] || [];
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
         if (!rows || rows.length < 2) {
-          return resolve({ records: [], errors: ['فایل اکسل خالی است یا ساختار مناسبی ندارد.'], matchedCount: 0 });
+          return resolve({ records: [], errors: ['شیت کسری فاقد ردیف‌های داده است.'], matchedCount: 0 });
         }
 
         const headers: string[] = (rows[0] || []).map((h: any) => String(h || '').trim());
@@ -600,16 +586,16 @@ export async function parseKasraExcelFile(
         const findCol = (keywords: string[]) =>
           headers.findIndex(h => keywords.some(k => h.toLowerCase().includes(k.toLowerCase())));
 
-        const codeIdx = findCol(['کد پرسنلی', 'code', 'staff', 'شناسه', 'کد']);
-        const nameIdx = findCol(['نام', 'name', 'نام و خانوادگی', 'پرسنل']);
-        const periodIdx = findCol(['دوره', 'period', 'نیمسال', 'فصل']);
-        const hoursIdx = findCol(['ساعات کارکرد', 'کارکرد', 'ساعت', 'hours']);
-        const delayIdx = findCol(['تاخیر', 'تعجیل', 'delay', 'کسری']);
-        const absenceIdx = findCol(['غیبت', 'absence', 'غیرموجه']);
+        const codeIdx = findCol(['کد پرسنلی', 'code', 'staff', 'شماره پرسنلی', 'پرسنلی']);
+        const nameIdx = findCol(['نام و نام خانوادگی', 'name', 'نام پرسنل', 'کارمند']);
+        const periodIdx = findCol(['دوره ارزیابی', 'period', 'دوره', 'فصل']);
+        const hoursIdx = findCol(['ساعت کار موظف', 'کارکرد', 'ساعت', 'hours']);
+        const delayIdx = findCol(['دقایق تاخیر', 'تاخیر', 'delay', 'دقیقه تاخیر']);
+        const absenceIdx = findCol(['غیبت غیرمجاز', 'absence', 'غیبت']);
         const leaveIdx = findCol(['مرخصی', 'leave']);
-        const overtimeIdx = findCol(['اضافه', 'اضافه‌کار', 'overtime']);
-        const infractionIdx = findCol(['تذکر', 'انضباطی', 'infraction', 'جریمه']);
-        const noteIdx = findCol(['توضیح', 'توضیحات', 'note', 'ملاحظات']);
+        const overtimeIdx = findCol(['اضافه کار', 'اضافه‌کار', 'overtime']);
+        const infractionIdx = findCol(['تذکرات انضباطی', 'تذکر', 'infraction', 'انضباطی']);
+        const noteIdx = findCol(['توضیحات تکمیلی', 'توضیحات', 'note', 'یادداشت']);
 
         const records: KasraAttendanceRecord[] = [];
         const errors: string[] = [];
@@ -621,8 +607,7 @@ export async function parseKasraExcelFile(
           const rawCode = String(row[codeIdx !== -1 ? codeIdx : 0] || '').trim();
           const cleanCode = rawCode.toUpperCase();
           const rawName = nameIdx !== -1 ? String(row[nameIdx] || '').trim() : '';
-          const period = periodIdx !== -1 ? String(row[periodIdx] || 'نیمه اول ۱۴۰۵').trim() : 'نیمه اول ۱۴۰۵';
-
+          const period = periodIdx !== -1 ? String(row[periodIdx] || 'دوره بهار ۱۴۰۳').trim() : 'دوره بهار ۱۴۰۳';
           const totalWorkHours = Number(row[hoursIdx]) || 960;
           const delayMinutes = Number(row[delayIdx]) || 0;
           const absenceDays = Number(row[absenceIdx]) || 0;
@@ -640,7 +625,7 @@ export async function parseKasraExcelFile(
           if (matchedEmp) {
             matchedCount++;
           } else {
-            errors.push(`ردیف ${rIdx + 2}: کد پرسنلی «${rawCode}» در سامانه کارکنان ثبت نشده است.`);
+            errors.push(`ردیف ${rIdx + 2}: کارمند با کد ${rawCode} در بانک اطلاعاتی یافت نشد.`);
           }
 
           const calculatedScore = calculateKasraScore(delayMinutes, absenceDays, disciplineInfractions);
@@ -664,33 +649,30 @@ export async function parseKasraExcelFile(
 
         resolve({ records, errors, matchedCount });
       } catch (err: any) {
-        reject(new Error('خطا در خواندن فایل اکسل کسری: ' + err.message));
+        reject(new Error('خطا در پردازش فایل اکسل کسری: ' + err.message));
       }
     };
-
-    reader.onerror = () => reject(new Error('خطا در بارگذاری فایل'));
+    reader.onerror = () => reject(new Error('خطا در خواندن فایل'));
     reader.readAsArrayBuffer(file);
   });
 }
 
-/**
- * Parses an Excel file uploaded by the user for MIS Production (Legacy / Direct)
- */
 export async function parseMISExcelFile(
   file: File,
   existingEmployees: Employee[]
 ): Promise<{ records: MISProductionRecord[]; errors: string[]; matchedCount: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
-    reader.onload = async () => {
+    reader.onload = (e) => {
       try {
-        const workbook = await readWorkbookRows(file);
-        const firstSheetName = workbook.sheets[0];
-        const rows = workbook.rowsBySheet[firstSheetName] || [];
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
         if (!rows || rows.length < 2) {
-          return resolve({ records: [], errors: ['فایل اکسل خالی است یا ساختار مناسبی ندارد.'], matchedCount: 0 });
+          return resolve({ records: [], errors: ['شیت MIS فاقد داده معتبر است.'], matchedCount: 0 });
         }
 
         const headers: string[] = (rows[0] || []).map((h: any) => String(h || '').trim());
@@ -699,16 +681,16 @@ export async function parseMISExcelFile(
         const findCol = (keywords: string[]) =>
           headers.findIndex(h => keywords.some(k => h.toLowerCase().includes(k.toLowerCase())));
 
-        const codeIdx = findCol(['کد پرسنلی', 'code', 'staff', 'شناسه', 'کد']);
-        const nameIdx = findCol(['نام', 'name', 'نام و خانوادگی', 'پرسنل']);
-        const periodIdx = findCol(['دوره', 'period', 'نیمسال', 'فصل']);
-        const producedIdx = findCol(['تولید واقعی', 'تولید', 'produced', 'خروجی', 'واقعی']);
-        const targetIdx = findCol(['تارگت', 'برنامه', 'target', 'هدف', 'مصوب']);
-        const efficiencyIdx = findCol(['راندمان', 'بهره‌وری', 'efficiency', 'درصد تولید', 'درصد']);
-        const scrapIdx = findCol(['ضایعات', 'scrap', 'دوباره‌کاری', 'پرت']);
-        const downtimeIdx = findCol(['توقف', 'توقفات', 'downtime', 'خاموشی']);
-        const qualityIdx = findCol(['کیفیت', 'کیفی', 'qc', 'quality', 'کنترل کیفیت']);
-        const noteIdx = findCol(['توضیح', 'توضیحات', 'note', 'ملاحظات']);
+        const codeIdx = findCol(['کد پرسنلی', 'code', 'staff', 'شماره پرسنلی', 'پرسنلی']);
+        const nameIdx = findCol(['نام و نام خانوادگی', 'name', 'نام پرسنل', 'کارمند']);
+        const periodIdx = findCol(['دوره ارزیابی', 'period', 'دوره', 'فصل']);
+        const producedIdx = findCol(['تیراژ تولید واقعی', 'تولید واقعی', 'produced', 'تولید', 'تیراژ']);
+        const targetIdx = findCol(['تیراژ هدف برنامه‌ریزی‌شده', 'هدف', 'target', 'برنامه', 'تارگت']);
+        const efficiencyIdx = findCol(['درصد راندمان تولید', 'راندمان', 'efficiency', 'بهره وری', 'درصد راندمان']);
+        const scrapIdx = findCol(['درصد ضایعات خط', 'ضایعات', 'scrap', 'درصد ضایعات', 'افت کیفی']);
+        const downtimeIdx = findCol(['ساعت توقف ناخواسته', 'توقف', 'downtime', 'ساعت توقف']);
+        const qualityIdx = findCol(['نمره کیفی qc', 'نمره کیفی', 'qc', 'quality', 'کیفیت']);
+        const noteIdx = findCol(['توضیحات داده‌های mis', 'توضیحات', 'note', 'یادداشت']);
 
         const records: MISProductionRecord[] = [];
         const errors: string[] = [];
@@ -720,26 +702,23 @@ export async function parseMISExcelFile(
           const rawCode = String(row[codeIdx !== -1 ? codeIdx : 0] || '').trim();
           const cleanCode = rawCode.toUpperCase();
           const rawName = nameIdx !== -1 ? String(row[nameIdx] || '').trim() : '';
-          const period = periodIdx !== -1 ? String(row[periodIdx] || 'نیمه اول ۱۴۰۵').trim() : 'نیمه اول ۱۴۰۵';
-
+          const period = periodIdx !== -1 ? String(row[periodIdx] || 'دوره بهار ۱۴۰۳').trim() : 'دوره بهار ۱۴۰۳';
+          
           const producedUnits = Number(row[producedIdx]) || 12000;
           const targetUnits = Number(row[targetIdx]) || 12000;
           let efficiencyRate = Number(row[efficiencyIdx]) || 100;
           if (efficiencyRate < 2 && efficiencyRate > 0) {
             efficiencyRate = efficiencyRate * 100;
           }
-
           let scrapRate = Number(row[scrapIdx]) || 1.5;
           if (scrapRate < 0.2 && scrapRate > 0) {
             scrapRate = scrapRate * 100;
           }
-
           const downtimeHours = Number(row[downtimeIdx]) || 0;
           let qualityScore = Number(row[qualityIdx]) || 98;
           if (qualityScore < 2 && qualityScore > 0) {
             qualityScore = qualityScore * 100;
           }
-
           const notes = noteIdx !== -1 ? String(row[noteIdx] || '') : '';
 
           const matchedEmp = existingEmployees.find(
@@ -751,7 +730,7 @@ export async function parseMISExcelFile(
           if (matchedEmp) {
             matchedCount++;
           } else {
-            errors.push(`ردیف ${rIdx + 2}: کد پرسنلی «${rawCode}» در پایگاه کارکنان پیدا نشد.`);
+            errors.push(`ردیف ${rIdx + 2}: پرسنل با کد ${rawCode} در پایگاه داده یافت نشد.`);
           }
 
           const calculatedKpiScore = calculateMISScore(efficiencyRate, scrapRate, qualityScore);
@@ -775,10 +754,9 @@ export async function parseMISExcelFile(
 
         resolve({ records, errors, matchedCount });
       } catch (err: any) {
-        reject(new Error('خطا در خواندن فایل اکسل MIS: ' + err.message));
+        reject(new Error('خطا در پردازش فایل اکسل MIS: ' + err.message));
       }
     };
-
     reader.onerror = () => reject(new Error('خطا در بارگذاری فایل'));
     reader.readAsArrayBuffer(file);
   });

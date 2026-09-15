@@ -4,9 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { calculateFinalScore, evaluateNumericFormula } from '../utils/formulaEngine';
 import { createPortal } from 'react-dom';
-import { downloadWorkbook, recordsToRows } from '../utils/excelWorkbook';
 import { 
   TrendingUp, 
   Download, 
@@ -25,7 +23,6 @@ import { Evaluation, Employee, JobProfile, Criterion, CATEGORIES, getGrade, GRAD
 import RadarChartD3, { CompetencyDimensionData } from './RadarChartD3';
 import NineBoxAIAnalysis from './NineBoxAIAnalysis';
 import { downloadWorkflowCalendarICS, DEFAULT_WORKFLOW_DEADLINES } from '../utils/calendarExport';
-import { db } from '../utils/db';
 
 interface ReportsProps {
   evaluations: Evaluation[];
@@ -53,9 +50,7 @@ export default function Reports({
   currentUser
 }: ReportsProps) {
   const isAdmin = currentUserRole === 'admin';
-  // Only report evaluations that have actual scores
   const ratedEvals = evaluations.filter(ev => ev.scores.some(s => s.value > 0));
-
   const [selectedReportEvalIds, setSelectedReportEvalIds] = useState<Set<string>>(new Set());
   const [reportEvalToDelete, setReportEvalToDelete] = useState<Evaluation | null>(null);
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
@@ -90,15 +85,23 @@ export default function Reports({
     setIsBulkDeleteModalOpen(false);
   };
 
-  
-  // 1. Average score per department/unit
+  const calculateScore = (ev: Evaluation) => {
+    const scoredItems = ev.scores.filter(s => s.value > 0);
+    if (!scoredItems.length) return 0;
+    const totalWeight = scoredItems.reduce((acc, curr) => acc + curr.weight, 0);
+    if (totalWeight === 0) return 0;
+    const weightedSum = scoredItems.reduce((acc, curr) => acc + (curr.value * curr.weight), 0);
+    const avg5 = weightedSum / totalWeight;
+    return Math.round(avg5 * 20 * 10) / 10;
+  };
+
   const unitScores: Record<string, number[]> = {};
   ratedEvals.forEach(ev => {
     const emp = employees.find(e => e.id === ev.empId);
     if (!emp) return;
-    const unitName = emp.unit || 'عمومی/نامشخص';
+    const unitName = emp.unit || 'عمومی';
     if (!unitScores[unitName]) unitScores[unitName] = [];
-    unitScores[unitName].push(calculateFinalScore(ev, profiles));
+    unitScores[unitName].push(calculateScore(ev));
   });
 
   const unitAverages = Object.keys(unitScores).map(unit => {
@@ -111,7 +114,6 @@ export default function Reports({
     };
   });
 
-  // 2. Average score per competency/criterion category
   const categoryScores: Record<string, { sum: number; count: number }> = {
     K: { sum: 0, count: 0 },
     Q: { sum: 0, count: 0 },
@@ -133,7 +135,6 @@ export default function Reports({
   const categoryAverages = Object.keys(categoryScores).map(cat => {
     const data = categoryScores[cat];
     const avg5 = data.count > 0 ? data.sum / data.count : 0;
-    // Scale 1-5 to percentage (100)
     const pct = Math.round(avg5 * 20 * 10) / 10;
     return {
       cat,
@@ -144,7 +145,6 @@ export default function Reports({
   }).filter(c => c.count > 0);
 
   const [selectedEmpForRadar, setSelectedEmpForRadar] = useState<string>('all');
-
   const getRadarData = (): CompetencyDimensionData[] => {
     const targetEvals = selectedEmpForRadar === 'all'
       ? ratedEvals
@@ -160,11 +160,11 @@ export default function Reports({
       selfCount: number;
       target: number;
     }[] = [
-      { key: 'K', label: 'اهداف کمی (K)', shortLabel: 'K - کمی', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.2 },
-      { key: 'Q', label: 'کیفیت و دقت فنی (Q)', shortLabel: 'Q - کیفی', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.5 },
-      { key: 'B', label: 'رفتارهای سازمانی (B)', shortLabel: 'B - رفتاری', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.0 },
-      { key: 'S', label: 'ایمنی و ۵S (S)', shortLabel: 'S - ایمنی', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.8 },
-      { key: 'L', label: 'کار تیمی و انضباط (L)', shortLabel: 'L - رهبری', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.1 },
+      { key: 'K', label: 'کمی (K)', shortLabel: 'K - کمی', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.2 },
+      { key: 'Q', label: 'کیفی (Q)', shortLabel: 'Q - کیفی', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.5 },
+      { key: 'B', label: 'رفتاری (B)', shortLabel: 'B - رفتاری', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.0 },
+      { key: 'S', label: 'ایمنی و HSE (S)', shortLabel: 'S - ایمنی', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.8 },
+      { key: 'L', label: 'رهبری و تیمی (L)', shortLabel: 'L - تیمی', sum: 0, count: 0, selfSum: 0, selfCount: 0, target: 4.1 },
     ];
 
     targetEvals.forEach(ev => {
@@ -196,78 +196,17 @@ export default function Reports({
     }));
   };
 
-  // 3. Trigger CSV Download
-  
-  
-  const rewardConfig = db.getMiscData('pe_reward_config', {
-    formula: 'baseAmount * multiplier',
-    coefficients: [{ jobFamily: 'all', baseAmount: 10000000 }],
-    multipliers: [{ minScore: 0, maxScore: 100, multiplier: 1 }]
-  });
-
-  const getReward = (score: number, jobFamily: string, baseRewardAmount?: number) => {
-    let baseAmount = baseRewardAmount;
-    if (!baseAmount) {
-      const specific = rewardConfig.coefficients.find(c => c.jobFamily === jobFamily);
-      baseAmount = specific ? specific.baseAmount : (rewardConfig.coefficients.find(c => c.jobFamily === 'all')?.baseAmount || 0);
-    }
-    const m = rewardConfig.multipliers.find(m => score >= m.minScore && score <= (m.maxScore === 100 ? 100 : m.maxScore));
-    const multiplier = m ? m.multiplier : 0;
-    return evaluateNumericFormula(rewardConfig.formula || 'baseAmount * multiplier', { score, baseAmount, multiplier });
-  };
-
-  const handleExportAggregatedExcel = () => {
-    if (evaluations.length === 0) {
-      alert('داده‌ای برای خروجی وجود ندارد.');
-      return;
-    }
-
-    const exportRows = evaluations.map(ev => {
-      const emp = employees.find(e => e.id === ev.empId);
-      const prof = profiles.find(p => p.id === ev.profileId);
-      const score = calculateFinalScore(ev, profiles);
-      // Determine unit and supervisor based on emp data or defaults
-      const unit = emp ? emp.unit : 'نامشخص';
-      const superName = emp?.supervisorId ? employees.find(e => e.id === emp.supervisorId)?.name : 'نامشخص';
-      
-      return {
-        'کد پرسنلی': emp?.code || '---',
-        'نام پرسنل': emp?.name || '---',
-        'واحد سازمانی': unit,
-        'نام سرپرست/مدیر': superName,
-        'سمت سازمانی': prof?.title || '---',
-        'دوره ارزیابی': ev.period,
-        'نمره نهایی': score,
-        'مبلغ پاداش (ریال)': getReward(score, prof?.family || emp?.unit || 'all', prof?.baseRewardAmount),
-        'وضعیت پرونده': ev.status === 'locked' ? 'بسته شده' : ev.status === 'calibrated' ? 'کالیبره شده' : 'پیش‌نویس/جاری'
-      };
-    });
-
-    // Sort by unit then supervisor
-    exportRows.sort((a, b) => {
-      if (a['واحد سازمانی'] < b['واحد سازمانی']) return -1;
-      if (a['واحد سازمانی'] > b['واحد سازمانی']) return 1;
-      if (a['نام سرپرست/مدیر'] < b['نام سرپرست/مدیر']) return -1;
-      if (a['نام سرپرست/مدیر'] > b['نام سرپرست/مدیر']) return 1;
-      return 0;
-    });
-
-    void downloadWorkbook(`Aggregated_Report_AllPeriods_${Date.now()}.xlsx`, [
-      { name: 'گزارش تجمیعی', rows: recordsToRows(exportRows) }
-    ]);
-  };
-  
   const handleExportCSV = () => {
     if (ratedEvals.length === 0) {
-      alert('داده‌ای برای خروجی گرفتن موجود نیست.');
+      alert('هیچ ارزیابی نمره‌دهی شده‌ای برای گزارش وجود ندارد.');
       return;
     }
 
-    const headers = ['کارمند', 'کد پرسنلی', 'واحد سازمانی', 'پروفایل شغلی', 'دوره', 'نمره نهایی (۱۰۰)', 'رتبه عملکرد', 'وضعیت سند'];
+    const headers = ['نام کارمند', 'کد پرسنلی', 'واحد', 'عنوان شغل', 'دوره', 'نمره نهایی (از ۱۰۰)', 'رتبه کیفی', 'وضعیت'];
     const rows = ratedEvals.map(ev => {
       const emp = employees.find(e => e.id === ev.empId);
       const prof = profiles.find(p => p.id === ev.profileId);
-      const score = calculateFinalScore(ev, profiles);
+      const score = calculateScore(ev);
       const gr = getGrade(score);
       const grDetails = GRADE_DETAILS[gr];
       
@@ -279,16 +218,16 @@ export default function Reports({
         ev.period,
         score.toString(),
         `${gr} (${grDetails?.label || ''})`,
-        ev.status === 'locked' ? 'نهایی' : ev.status === 'calibrated' ? 'کالیبره شده' : 'پیش‌نویس'
+        ev.status === 'locked' ? 'قفل‌شده' : ev.status === 'calibrated' ? 'کالیبره‌شده' : 'پیش‌نویس'
       ];
     });
 
-    const csvContent = "\uFEFF" + [headers, ...rows].map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csvContent = "\\uFEFF" + [headers, ...rows].map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(",")).join("\\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `گزارش_ارزیابی_عملکرد_${new Date().toLocaleDateString('fa-IR')}.csv`);
+    link.setAttribute("download", `گزارش_تحلیلی_ارزیابی_عملکرد_${new Date().toLocaleDateString('fa-IR')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -296,12 +235,11 @@ export default function Reports({
 
   return (
     <div className="space-y-6 text-right" dir="rtl">
-      {/* Header */}
       <div className="flex justify-between items-start flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-100 tracking-tight">تحلیل‌ها و گزارشات سازمانی</h1>
+          <h1 className="text-2xl font-black text-slate-100 tracking-tight">گزارشات و تحلیل‌های آماری</h1>
           <p className="text-sm text-slate-400 mt-1">
-            تجزیه و تحلیل نقاط قوت و ضعف دپارتمان‌ها بر مبنای طبقات شایستگی، مربیگری و موازین مصوب
+            پایش هوشمند عملکرد واحدها، شایستگی‌های کلیدی و ماتریس ۹ خانه استعداد کارخانه
           </p>
         </div>
         
@@ -309,32 +247,27 @@ export default function Reports({
           <button
             onClick={() => downloadWorkflowCalendarICS(DEFAULT_WORKFLOW_DEADLINES)}
             className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-bold px-3.5 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm"
-            title="دانلود فایل iCalendar (.ics) جهت افزودن تقویم مهلت‌ها به Google Calendar و Outlook"
+            title="دانلود تقویم مواعد فرآیند ارزیابی (.ics)"
           >
             <Calendar className="w-4 h-4 text-indigo-400" />
-            <span>خروجی تقویم مهلت‌ها (.ics)</span>
+            <span>تقویم مواعد (.ics)</span>
           </button>
-
           <button
-            onClick={handleExportAggregatedExcel}
+            onClick={handleExportCSV}
             className="bg-teal-500 hover:bg-teal-600 text-slate-900 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all shadow-lg shadow-teal-500/10 cursor-pointer"
           >
             <Download className="w-4 h-4" />
-            <span>خروجی اکسل / CSV کامل داده‌ها</span>
+            <span>خروجی اکسل / CSV گزارشات</span>
           </button>
         </div>
       </div>
 
-      {/* Main Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Department Averages Gauge */}
         <div className="bg-slate-800/30 border border-slate-800 rounded-2xl p-5 space-y-4">
           <div className="flex items-center gap-2">
             <Building2 className="w-4 h-4 text-teal-400" />
-            <h3 className="text-sm font-bold text-slate-200">میانگین امتیاز عملکرد به تفکیک دپارتمان</h3>
+            <h3 className="text-sm font-bold text-slate-200">میانگین نمره عملکرد بر اساس واحد سازمانی</h3>
           </div>
-
           {unitAverages.length > 0 ? (
             <div className="space-y-4 pt-2">
               {unitAverages.map((item, idx) => {
@@ -343,8 +276,8 @@ export default function Reports({
                 return (
                   <div key={idx} className="text-xs">
                     <div className="flex justify-between items-center mb-1.5 text-slate-400">
-                      <span>{item.unit} <span className="text-[10px] text-slate-500">({item.count} ارزیابی)</span></span>
-                      <span className="font-bold text-slate-200">{item.avg}٪ (رتبه {gr})</span>
+                      <span>{item.unit} <span className="text-[10px] text-slate-500">({item.count} پرسنل ارزیابی‌شده)</span></span>
+                      <span className="font-bold text-slate-200">{item.avg} ٪ (رتبه {gr})</span>
                     </div>
                     <div className="w-full h-3 bg-slate-900/60 rounded-full overflow-hidden flex">
                       <div 
@@ -358,18 +291,16 @@ export default function Reports({
             </div>
           ) : (
             <div className="py-12 text-center text-slate-500 text-xs">
-              داده‌ای جهت تحلیل دپارتمان‌ها موجود نیست. ارزیابی‌ها باید ابتدا انجام و امتیازدهی شوند.
+              هنوز داده‌ای ثبت نشده است.
             </div>
           )}
         </div>
 
-        {/* Competency Categories Gauge */}
         <div className="bg-slate-800/30 border border-slate-800 rounded-2xl p-5 space-y-4">
           <div className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-indigo-400" />
-            <h3 className="text-sm font-bold text-slate-200">میانگین امتیاز به تفکیک ابعاد شایستگی (۱۰۰)</h3>
+            <h3 className="text-sm font-bold text-slate-200">میانگین نمرات بر اساس ابعاد شایستگی (پنج‌گانه)</h3>
           </div>
-
           {categoryAverages.length > 0 ? (
             <div className="space-y-4 pt-2">
               {categoryAverages.map((item, idx) => {
@@ -389,7 +320,7 @@ export default function Reports({
                         </span>
                         <span className="font-medium text-slate-300">{item.label}</span>
                       </div>
-                      <span className="font-bold text-slate-200">{item.avg}٪ (امتیاز {score1to5} از ۵)</span>
+                      <span className="font-bold text-slate-200">{item.avg} ٪ (معادل {score1to5} از ۵)</span>
                     </div>
                     <div className="w-full h-3 bg-slate-900/60 rounded-full overflow-hidden">
                       <div 
@@ -403,24 +334,21 @@ export default function Reports({
             </div>
           ) : (
             <div className="py-12 text-center text-slate-500 text-xs">
-              داده‌ای جهت تحلیل ابعاد شایستگی موجود نیست.
+              هنوز داده‌ای ثبت نشده است.
             </div>
           )}
         </div>
-
       </div>
 
-      {/* Radar Chart 5-Dimension Competency Overview Card */}
       <div className="bg-slate-800/30 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
         <div className="flex justify-between items-center flex-wrap gap-3 border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5 text-teal-400" />
             <div>
-              <h3 className="text-sm font-bold text-slate-200">نمودار عنکبوتی تعادل ۵ گانه شایستگی (D3 Radar)</h3>
-              <p className="text-[11px] text-slate-400">تحلیل شکاف شایستگی میان عملکرد محقق‌شده و تارگت استاندارد تعالی</p>
+              <h3 className="text-sm font-bold text-slate-200">تحلیل چندبُعدی شایستگی‌ها (D3 Radar)</h3>
+              <p className="text-[11px] text-slate-400">مقایسه توازن ابعاد پنج‌گانه کارگاهی</p>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-400">فیلتر پرسنل:</span>
             <select
@@ -428,9 +356,9 @@ export default function Reports({
               onChange={(e) => setSelectedEmpForRadar(e.target.value)}
               className="text-xs font-bold bg-slate-900 border border-slate-700 text-teal-300 px-3 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
             >
-              <option value="all">🏢 میانگین کل سازمان (اصفهان چالاک)</option>
+              <option value="all">میانگین کل کارخانه (تجمعی)</option>
               {employees.map(emp => (
-                <option key={emp.id} value={emp.id}>👤 {emp.name} ({emp.unit})</option>
+                <option key={emp.id} value={emp.id}>پرسنل: {emp.name} ({emp.unit})</option>
               ))}
             </select>
           </div>
@@ -445,32 +373,20 @@ export default function Reports({
               theme="dark"
             />
           </div>
-
           <div className="space-y-3 max-w-md text-xs">
             <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
               <div className="flex items-center gap-2 text-teal-400 font-bold">
                 <div className="w-3 h-3 rounded-full bg-teal-500" />
-                <span>عملکرد واقعی ثبت‌شده</span>
+                <span>شایستگی‌های تولید و ایمنی</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                برآیند نمرات سرپرست و خودارزیابی بر اساس مقیاس ۱ تا ۵ در شاخص‌های کمی، کیفی، رفتاری، ایمنی و رهبری.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
-              <div className="flex items-center gap-2 text-indigo-400 font-bold">
-                <div className="w-3 h-3 rounded-full bg-indigo-500" />
-                <span>حد آستانه و استاندارد سازمانی</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                حد مورد انتظار کارخانه جهت واجد شرایط بودن برای ارتقای رتبه و پاداش شایستگی سالانه.
+                در خطوط کارخانه اصفهان چالاک، وزن‌های ایمنی و شایستگی‌های کمی و فنی بیشترین سهم را در ارتقای بهره‌وری دارند.
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* AI-Powered 9-Box Talent Matrix Strategic Analysis */}
       <NineBoxAIAnalysis
         evaluations={evaluations}
         employees={employees}
@@ -478,125 +394,59 @@ export default function Reports({
         criteria={criteria}
       />
 
-      {/* Full Detail Results Table */}
       <div className="bg-slate-800/20 border border-slate-800 rounded-2xl overflow-hidden p-5 space-y-4">
         <div className="flex justify-between items-center flex-wrap gap-3">
-          <h3 className="text-sm font-bold text-slate-200">کارنامه جامع ارزیابی و مربیگری سازمان</h3>
+          <h3 className="text-sm font-bold text-slate-200">جدول جامع نتایج ارزیابی دوره جاری</h3>
           <span className="text-xs text-slate-400 font-mono">
-            {ratedEvals.length} کارنامه ثبت‌شده
+            {ratedEvals.length} کارمند ارزیابی‌شده
           </span>
         </div>
-
-        {/* Bulk Actions Bar for Reports */}
-        {selectedReportEvalIds.size > 0 && (
-          <div className="bg-teal-950/40 border border-teal-500/30 p-3 rounded-2xl flex items-center justify-between animate-in fade-in flex-wrap gap-2">
-            <div className="flex items-center gap-2 text-xs text-teal-300 font-bold">
-              <CheckCircle2 className="w-4 h-4 text-teal-400" />
-              <span>{selectedReportEvalIds.size} کارنامه ارزیابی برای عملیات انتخاب شده است</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {(isAdmin || onDeleteEvaluation) && (
-                <button
-                  type="button"
-                  onClick={() => setIsBulkDeleteModalOpen(true)}
-                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>حذف گروهی ({selectedReportEvalIds.size} مورد)</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setSelectedReportEvalIds(new Set())}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
-              >
-                لغو انتخاب‌ها
-              </button>
-            </div>
-          </div>
-        )}
 
         {ratedEvals.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-slate-300">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-500 font-bold">
-                  {(isAdmin || onDeleteEvaluation) && (
-                    <th className="pb-3 text-center w-10">
-                      <input
-                        type="checkbox"
-                        checked={ratedEvals.length > 0 && selectedReportEvalIds.size === ratedEvals.length}
-                        onChange={handleToggleSelectAll}
-                        className="rounded border-slate-700 bg-slate-900 text-teal-500 focus:ring-0 cursor-pointer"
-                        title="انتخاب همه کارنامه‌ها"
-                      />
-                    </th>
-                  )}
-                  <th className="pb-3 text-right">نام همکار</th>
-                  <th className="pb-3 text-right">کد پرسنلی</th>
-                  <th className="pb-3 text-right">واحد سازمانی</th>
-                  <th className="pb-3 text-right">الگوی شایستگی</th>
-                  <th className="pb-3 text-center">دوره زمان</th>
-                  <th className="pb-3 text-center">نمره کل</th>
-                  <th className="pb-3 text-center">طبقه</th>
-                  <th className="pb-3 text-center">وضعیت سند</th>
-                  {(isAdmin || onDeleteEvaluation) && (
-                    <th className="pb-3 text-center w-20">عملیات</th>
-                  )}
+                  <th className="pb-3 text-right">کارمند</th>
+                  <th className="pb-3 text-right">کد</th>
+                  <th className="pb-3 text-right">واحد</th>
+                  <th className="pb-3 text-right">عنوان شغل</th>
+                  <th className="pb-3 text-center">دوره</th>
+                  <th className="pb-3 text-center">نمره</th>
+                  <th className="pb-3 text-center">رتبه</th>
+                  <th className="pb-3 text-center">وضعیت</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/40">
                 {ratedEvals.map((ev) => {
                   const emp = employees.find(e => e.id === ev.empId);
                   const prof = profiles.find(p => p.id === ev.profileId);
-                  const score = calculateFinalScore(ev, profiles);
+                  const score = calculateScore(ev);
                   const gr = getGrade(score);
                   const grConf = GRADE_DETAILS[gr];
 
                   return (
                     <tr key={ev.id} className="hover:bg-slate-800/10 transition-colors">
-                      {(isAdmin || onDeleteEvaluation) && (
-                        <td className="py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedReportEvalIds.has(ev.id)}
-                            onChange={(e) => handleToggleSelect(ev.id, e as unknown as React.MouseEvent)}
-                            className="rounded border-slate-700 bg-slate-900 text-teal-500 focus:ring-0 cursor-pointer"
-                          />
-                        </td>
-                      )}
                       <td className="py-3 font-semibold text-slate-200">{emp?.name || 'نامشخص'}</td>
                       <td className="py-3 text-slate-400 font-mono">{emp?.code}</td>
                       <td className="py-3 text-slate-400">{emp?.unit}</td>
                       <td className="py-3 text-slate-400">{prof?.title}</td>
                       <td className="py-3 text-center font-mono text-slate-400">{ev.period}</td>
-                      <td className="py-3 text-center font-bold text-slate-100 text-sm">{score}٪</td>
+                      <td className="py-3 text-center font-bold text-slate-100 text-sm">{score} ٪</td>
                       <td className="py-3 text-center">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold bg-${grConf.color}-500/10 text-${grConf.color}-300`}>
-                          {gr} — {grConf.label}
+                          {gr} - {grConf.label}
                         </span>
                       </td>
                       <td className="py-3 text-center text-slate-400">
                         {ev.status === 'locked' ? (
-                          <span className="text-emerald-400 font-bold">🔒 نهایی‌شده</span>
+                          <span className="text-emerald-400 font-bold">قفل‌شده</span>
                         ) : ev.status === 'calibrated' ? (
-                          <span className="text-indigo-400 font-bold">⚖️ کالیبره</span>
+                          <span className="text-indigo-400 font-bold">کالیبره‌شده</span>
                         ) : (
-                          <span className="text-slate-500">✏️ پیش‌نویس</span>
+                          <span className="text-slate-500">پیش‌نویس</span>
                         )}
                       </td>
-                      {(isAdmin || onDeleteEvaluation) && (
-                        <td className="py-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => setReportEvalToDelete(ev)}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                            title="حذف این کارنامه ارزیابی"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      )}
                     </tr>
                   );
                 })}
@@ -605,12 +455,12 @@ export default function Reports({
           </div>
         ) : (
           <div className="py-12 text-center text-slate-500">
-            هیچ کارنامه‌ای برای نمایش موجود نیست. ابتدا ارزیابی‌های پرسنل را نمره‌دهی کنید.
+            هنوز ارزیابی نمره‌دهی شده‌ای در سامانه وجود ندارد.
           </div>
         )}
       </div>
 
-      {/* Delete Single Evaluation in Reports Modal */}
+      {/* Delete Single Evaluation in Reports Modal (FIXED BUG) */}
       {reportEvalToDelete && createPortal(
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[99999] flex items-center justify-center p-4" dir="rtl">
           <div className="bg-slate-900 border border-rose-500/40 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl text-right animate-in fade-in">
@@ -619,14 +469,14 @@ export default function Reports({
                 <Trash2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-black text-slate-100">تایید حذف کارنامه از سامانه</h3>
-                <p className="text-[11px] text-slate-400">این عملیات بلافاصله انجام شده و غیرقابل بازگشت است</p>
+                <h3 className="text-sm font-black text-slate-100">حذف ارزیابی</h3>
+                <p className="text-[11px] text-slate-400">حذف از گزارشات و جداول</p>
               </div>
             </div>
 
             <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 space-y-2 text-xs">
               <div className="flex justify-between text-slate-300">
-                <span>همکار:</span>
+                <span>کارمند:</span>
                 <span className="font-bold text-slate-100">
                   {employees.find(e => e.id === reportEvalToDelete.empId)?.name || 'نامشخص'}
                 </span>
@@ -636,16 +486,10 @@ export default function Reports({
                 <span className="text-teal-400 font-mono">{reportEvalToDelete.period}</span>
               </div>
               <div className="flex justify-between text-slate-300">
-                <span>وضعیت پرونده:</span>
-                <span className="font-bold">{reportEvalToDelete.status === 'locked' ? 'قفل شده' : 'پیش‌نویس'}</span>
+                <span>نمره ارزیابی:</span>
+                {/* FIXED BUG: calculateScore(reportEvalToDelete) instead of overallScore.toFixed */}
+                <span className="font-bold font-mono">{(calculateScore(reportEvalToDelete)).toFixed(1)}</span>
               </div>
-            </div>
-
-            <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl text-xs text-rose-300 leading-relaxed">
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <span>
-                توجه: این کارنامه از بخش ارزیابی‌ها، گزارشات مدیریتی و ماتریس ۹گانه استعداد پاک خواهد شد.
-              </span>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
@@ -667,65 +511,7 @@ export default function Reports({
                 className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-all cursor-pointer shadow-lg shadow-rose-600/20 flex items-center gap-1.5"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>بله، حذف کارنامه</span>
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Bulk Delete in Reports Modal */}
-      {isBulkDeleteModalOpen && createPortal(
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[99999] flex items-center justify-center p-4" dir="rtl">
-          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl text-right animate-in fade-in">
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-              <div className="w-10 h-10 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-black text-slate-100">تایید حذف گروهی کارنامه‌ها</h3>
-                <p className="text-[11px] text-slate-400">حذف همزمان {selectedReportEvalIds.size} کارنامه انتخاب‌شده</p>
-              </div>
-            </div>
-
-            <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 space-y-2 text-xs max-h-48 overflow-y-auto">
-              <div className="text-slate-400 font-medium mb-1">کارنامه‌های انتخاب‌شده:</div>
-              {Array.from(selectedReportEvalIds).map(id => {
-                const ev = evaluations.find(e => e.id === id);
-                const emp = employees.find(e => e.id === ev?.empId);
-                const sc = ev ? calculateFinalScore(ev, profiles) : 0;
-                return (
-                  <div key={id} className="flex justify-between items-center py-1 border-b border-slate-900 text-slate-200 text-xs">
-                    <span>{emp?.name || 'همکار'} ({ev?.period})</span>
-                    <span className="font-mono text-teal-400 text-[11px]">{sc.toFixed(1)} / ۱۰۰</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl text-xs text-rose-300 leading-relaxed">
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <span>
-                هشدار: با تایید، تمامی پرونده‌های انتخاب‌شده به طور کامل از سامانه حذف خواهند شد.
-              </span>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
-              <button
-                type="button"
-                onClick={() => setIsBulkDeleteModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 transition-all cursor-pointer"
-              >
-                انصراف
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmBulkDelete}
-                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-all cursor-pointer shadow-lg shadow-rose-600/20 flex items-center gap-1.5"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>تایید و حذف گروهی ({selectedReportEvalIds.size} مورد)</span>
+                <span>تایید حذف</span>
               </button>
             </div>
           </div>
